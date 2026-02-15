@@ -1,12 +1,12 @@
 #include "ring_buffer.h"
 
-void rb_init(ring_buffer_t *rb) {
+void felix_ringbuffer_init(FelixRingBuffer_t *rb) {
     rb->head = 0;
     rb->tail = 0;
 }
 
-bool rb_push(ring_buffer_t *rb, uint8_t data) {
-    uint32_t next = (rb->head + 1) % RING_BUFFER_SIZE;
+bool felix_ringbuffer_push(FelixRingBuffer_t *rb, uint8_t data) {
+    uint32_t next = (rb->head + 1) % FELIX_RINGBUFFER_SIZE;
 
     // Check if full (next write would overwrite tail)
     if (next == rb->tail) {
@@ -18,32 +18,32 @@ bool rb_push(ring_buffer_t *rb, uint8_t data) {
     return true;
 }
 
-bool rb_pop(ring_buffer_t *rb, uint8_t *data) {
+bool felix_ringbuffer_pop(FelixRingBuffer_t *rb, uint8_t *data) {
     // Check if empty
     if (rb->head == rb->tail) {
         return false;
     }
 
     *data = rb->buffer[rb->tail];
-    rb->tail = (rb->tail + 1) % RING_BUFFER_SIZE;
+    rb->tail = (rb->tail + 1) % FELIX_RINGBUFFER_SIZE;
     return true;
 }
 
-bool rb_is_empty(ring_buffer_t *rb) {
+bool felix_ringbuffer_is_empty(FelixRingBuffer_t *rb) {
     return (rb->head == rb->tail);
 }
 
-bool rb_is_full(ring_buffer_t *rb) {
-    return ((rb->head + 1) % RING_BUFFER_SIZE) == rb->tail;
+bool felix_ringbuffer_is_full(FelixRingBuffer_t *rb) {
+    return ((rb->head + 1) % FELIX_RINGBUFFER_SIZE) == rb->tail;
 }
 
-bool rb_unpush(ring_buffer_t *rb) {
-    if (rb_is_empty(rb)) return false;
+bool felix_ringbuffer_unpush(FelixRingBuffer_t *rb) {
+    if (felix_ringbuffer_is_empty(rb)) return false;
 
     // Move head back one position (handling wrap-around)
     // Note: This is safe in ISR (Producer) because Consumer only touches tail.
     if (rb->head == 0) {
-        rb->head = RING_BUFFER_SIZE - 1;
+        rb->head = FELIX_RINGBUFFER_SIZE - 1;
     } else {
         rb->head--;
     }
