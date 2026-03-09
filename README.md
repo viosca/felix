@@ -19,29 +19,30 @@ Modern embedded systems often sit in an awkward gap: they are too powerful for s
 ## 🎯 Primary Goals
 1.  **POSIX-Compatible Stubs:** Replace standard `Newlib` stubs to map `stdio` and system calls to internal Felix services and hardware drivers.
 2.  **Cooperative Streaming Architecture:** A microkernel design focused on piping data blocks between tasks and hardware interfaces without blocking.
-3.  **Static VFS:** A virtual filesystem mapping `/dev/`, `/bin/`, and `/etc/` to static function trees and device drivers.
+3.  **Static VFS:** A virtual filesystem mapping `/dev/` and `/bin/` to static function trees and device drivers.
 4.  **Interactive Shell:** The **`frell`** CLI, providing a robust, command-line interface for system debugging and control.
-5.  **Multi-Platform Portability:** A clean separation between the kernel logic and the Hardware Abstraction Layer (HAL) for RISC-V and ARM architectures.
+5.  **Multi-Platform Portability:** **(In the works)** A clean separation between the kernel logic and the Hardware Abstraction Layer (HAL) for RISC-V and ARM (planned) architectures.
 
 ---
 
 ## 🛠 Target Hardware
 * **Microchip PolarFire SoC:** Focusing on the U54 application harts.
-* **Alif Semiconductor:** Targeting both the High-Performance and High-Efficiency cores.
+* **Alif Semiconductor:** **(Planned)** Targeting both the High-Performance and High-Efficiency cores.
+* **NXP LPC54S018M:** **(Planned)**.
 
 ---
 
-## ⚖️ The Cooperative Philosophy
-Unlike preemptive RTOSs, Felix operates on a **"Polite Citizen"** model. 
+## ⚖️ The Cooperative Philosophy **(Planned)**
+Unlike preemptive RTOSes, Felix operates on a **"Polite Citizen"** model. 
 * **No Preemption:** Tasks are never forcibly interrupted by the scheduler.
-* **Explicit Yielding:** Performance and responsiveness are managed by the programmer using `yield()`, ensuring that context switches only happen at logical boundaries.
-* **Deterministic I/O:** Ideal for streaming large data sets where timing and sequence are critical.
+* **Explicit Yielding:** **(Planned)** Performance and responsiveness are managed by the programmer using `yield()`, ensuring that context switches only happen at logical boundaries.
+* **Deterministic I/O:** **(Planned)** Ideal for streaming large data sets where timing and sequence are critical.
 
 ---
 
 ## 📂 Project Structure (Planned)
-* `/arch`: Architecture-specific assembly and context-switching (RISC-V/ARM).
-* `/kernel`: The core scheduler and task management.
+* `/arch`: **(Planned)** Architecture-specific assembly and context-switching (RISC-V/ARM).
+* `/kernel`: **(Planned)** The core scheduler and task management.
 * `/posix`: Syscall implementations and standard C library "un-stubbing."
 * `/vfs`: Virtual File System and device registration logic.
 * `/shell`: The `frell` CLI and userland utilities.
