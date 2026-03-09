@@ -16,6 +16,16 @@ extern "C" {
 #define TCGETS  0x5401
 #define TCSETS  0x5402
 
+/* 3. Terminal Window Size */
+#define TIOCGWINSZ 0x5413
+
+struct winsize {
+    unsigned short ws_row;
+    unsigned short ws_col;
+    unsigned short ws_xpixel;
+    unsigned short ws_ypixel;
+};
+
 /* The standard ioctl prototype */
 int ioctl(int fd, int request, ...);
 

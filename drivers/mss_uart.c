@@ -585,8 +585,10 @@ MSS_UART_set_loopback
 /***************************************************************************//**
  * interrupt service routine.
  */
+//#define MMUART_OPT_WEAK __attribute__((weak))
+#define MMUART_OPT_WEAK
 
-__attribute__((weak)) uint8_t mmuart0_plic_77_IRQHandler(void)
+MMUART_OPT_WEAK uint8_t mmuart0_plic_77_IRQHandler(void)
 {
     if (g_uart_axi_pos & UART0_POSITION_MASK)
     {
@@ -600,7 +602,7 @@ __attribute__((weak)) uint8_t mmuart0_plic_77_IRQHandler(void)
     return EXT_IRQ_KEEP_ENABLED;
 }
 
-__attribute__((weak)) uint8_t mmuart1_plic_IRQHandler(void)
+MMUART_OPT_WEAK uint8_t mmuart1_plic_IRQHandler(void)
 {
     if (g_uart_axi_pos & UART1_POSITION_MASK)
     {
@@ -614,7 +616,7 @@ __attribute__((weak)) uint8_t mmuart1_plic_IRQHandler(void)
     return EXT_IRQ_KEEP_ENABLED;
 }
 
-__attribute__((weak)) uint8_t mmuart2_plic_IRQHandler(void)
+MMUART_OPT_WEAK uint8_t mmuart2_plic_IRQHandler(void)
 {
     if (g_uart_axi_pos & UART2_POSITION_MASK)
     {
@@ -628,7 +630,7 @@ __attribute__((weak)) uint8_t mmuart2_plic_IRQHandler(void)
     return EXT_IRQ_KEEP_ENABLED;
 }
 
-__attribute__((weak)) uint8_t mmuart3_plic_IRQHandler(void)
+MMUART_OPT_WEAK uint8_t mmuart3_plic_IRQHandler(void)
 {
     if (g_uart_axi_pos & UART3_POSITION_MASK)
     {
@@ -642,7 +644,7 @@ __attribute__((weak)) uint8_t mmuart3_plic_IRQHandler(void)
     return EXT_IRQ_KEEP_ENABLED;
 }
 
-__attribute__((weak)) uint8_t mmuart4_plic_IRQHandler(void)
+MMUART_OPT_WEAK uint8_t mmuart4_plic_IRQHandler(void)
 {
     if (g_uart_axi_pos & UART4_POSITION_MASK)
     {
@@ -656,7 +658,7 @@ __attribute__((weak)) uint8_t mmuart4_plic_IRQHandler(void)
     return EXT_IRQ_KEEP_ENABLED;
 }
 
-__attribute__((weak)) void mmuart0_e51_local_IRQHandler_11(void)
+MMUART_OPT_WEAK void mmuart0_e51_local_IRQHandler_11(void)
 {
     if (g_uart_axi_pos & UART0_POSITION_MASK)
     {
@@ -668,7 +670,7 @@ __attribute__((weak)) void mmuart0_e51_local_IRQHandler_11(void)
     }
 }
 
-__attribute__((weak)) void mmuart_u54_h1_local_IRQHandler_11(void)
+MMUART_OPT_WEAK void mmuart_u54_h1_local_IRQHandler_11(void)
 {
     if (g_uart_axi_pos & UART1_POSITION_MASK)
     {
@@ -680,7 +682,7 @@ __attribute__((weak)) void mmuart_u54_h1_local_IRQHandler_11(void)
     }
 }
 
-__attribute__((weak)) void mmuart_u54_h2_local_IRQHandler_11(void)
+MMUART_OPT_WEAK void mmuart_u54_h2_local_IRQHandler_11(void)
 {
     if (g_uart_axi_pos & UART2_POSITION_MASK)
     {
@@ -692,7 +694,7 @@ __attribute__((weak)) void mmuart_u54_h2_local_IRQHandler_11(void)
     }
 }
 
-__attribute__((weak)) void mmuart_u54_h3_local_IRQHandler_11(void)
+MMUART_OPT_WEAK void mmuart_u54_h3_local_IRQHandler_11(void)
 {
     if (g_uart_axi_pos & UART3_POSITION_MASK)
     {
@@ -703,7 +705,7 @@ __attribute__((weak)) void mmuart_u54_h3_local_IRQHandler_11(void)
         uart_isr(&g_mss_uart3_lo);
     }
 }
-void mmuart_u54_h4_local_IRQHandler_11(void)
+MMUART_OPT_WEAK void mmuart_u54_h4_local_IRQHandler_11(void)
 {
     if (g_uart_axi_pos & UART4_POSITION_MASK)
     {

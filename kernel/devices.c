@@ -1,116 +1,49 @@
 /**
  * @file devices.c
- * @brief Global Device Table and Kernel Dispatch Logic.
- *
- * This file implements the device registration system and the central
- * ioctl dispatch mechanism. It manages the state of all open file
- * descriptors in the system and translates standard C library requests
- * into hardware-specific flags.
+ * @brief Device registration and management.
  */
 
-#include "devices.h"
-#include <stddef.h>
-#include <errno.h>
-#include <sys/ioctl.h>  /* For FIONBIO, TCSETS, TCGETS */
-#include <termios.h>    /* For struct termios, ECHO, ICANON */
+#include "kernel/devices.h"
+#include <string.h>
 
-// The Global Device Table
-FelixDev_t g_felix_devices[FELIXDEV_MAX_OPEN_FILES];
+/* Static array of system devices (can be dynamic later) */
+static FlxDev_t g_devices[FLX_DEV_MAX_DEVICES];
 
-FelixDev_t *felixdev_register(int fd, FelixDevType_t type, void *hw_handle) {
-    FelixDev_t *dev = felixdev_get(fd);
-    if (!dev)
-        return dev;
+void flx_dev_init(void)
+{
+    memset(g_devices, 0, sizeof(g_devices));
 
-    dev->type = type;
-    dev->hw.generic = hw_handle;
-
-    // Default safety init
-    dev->flags.lword = 0;
-
-    return dev;
+    /* * Initialization of specific devices (like UART)
+     * will happen in their respective drivers (e.g., serial_init),
+     * which will fetch a slot from here and populate it.
+     */
 }
 
-/* =========================================================================
- * The Kernel IOCTL Handler
- * ========================================================================= */
-int felixdev_ioctl(int fd, int request, void *arg)
+FlxDev_t *flx_dev_get(int id)
 {
-    FelixDev_t *dev = felixdev_get(fd);
-    if (!dev) {
-        errno = EBADF;
-        return -1;
+    if (id < 0 || id >= FLX_DEV_MAX_DEVICES) {
+        return NULL;
     }
 
-    // Validate Device Type (Only UART supports these for now)
-    if (dev->type != FelixDevType_UART) {
-        errno = ENOTTY; // "Inappropriate ioctl for device"
-        return -1;
+    /* Simple validation: check if it's actually registered */
+    if (g_devices[id].type == FlxDevType_UNKNOWN) {
+        return NULL;
     }
 
-    switch (request) {
+    return &g_devices[id];
+}
 
-        /* -----------------------------------------------------------------
-         * Case 1: Toggle Non-Blocking Mode (FIONBIO)
-         * Usage: ioctl(fd, FIONBIO, &on);
-         * ----------------------------------------------------------------- */
-        case FIONBIO: {
-            if (!arg) {
-                errno = EFAULT;
-                return -1;
-            }
-            int on = *(int *)arg;
+FlxDev_t *flx_dev_register(int id, FlxDevType_t type)
+{
+    if (id < 0 || id >= FLX_DEV_MAX_DEVICES) return NULL;
 
-            // Set internal flag used by _read()
-            dev->flags.nonblock = !!on;
-            return 0;
-        }
-
-        /* -----------------------------------------------------------------
-         * Case 2: Set Terminal Attributes (TCSETS)
-         * Usage: tcsetattr(fd, TCSANOW, &termios_struct);
-         * ----------------------------------------------------------------- */
-        case TCSETS: {
-            if (!arg) {
-                errno = EFAULT;
-                return -1;
-            }
-            struct termios *t = (struct termios *)arg;
-
-            // Map Termios Macros (UPPERCASE) to Device Members (lowercase)
-
-            // Use the macro ECHO to check the bit, set the member echo_mode
-            dev->flags.echo_mode = !!(t->c_lflag & ECHO);
-
-            dev->flags.cooked_mode = !!(t->c_lflag & ICANON);
-
-            return 0;
-        }
-
-        /* -----------------------------------------------------------------
-         * Case 3: Get Terminal Attributes (TCGETS)
-         * Usage: tcgetattr(fd, &termios_struct);
-         * ----------------------------------------------------------------- */
-        case TCGETS: {
-            if (!arg) { errno = EFAULT; return -1; }
-            struct termios *t = (struct termios *)arg;
-
-            // Zero out the struct first
-            t->c_iflag = 0;
-            t->c_oflag = 0;
-            t->c_cflag = 0;
-            t->c_lflag = 0;
-            t->c_line  = 0;
-
-            // Populate supported flags based on current hardware state
-            if (dev->flags.echo_mode)   t->c_lflag |= ECHO;
-            if (dev->flags.cooked_mode) t->c_lflag |= ICANON;
-
-            return 0;
-        }
-
-        default:
-            errno = EINVAL; // Invalid argument/request
-            return -1;
+    /* Ensure the slot isn't already claimed by another driver */
+    if (g_devices[id].type != FlxDevType_UNKNOWN) {
+        return NULL;
     }
+
+    g_devices[id].id = id;
+    g_devices[id].type = type;
+
+    return &g_devices[id];
 }
