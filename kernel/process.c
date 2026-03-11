@@ -1,9 +1,9 @@
-#include <dirent.h>
-#include "process.h"
 #include <stddef.h>
 #include <errno.h>
 #include <string.h>
 #include <stdio.h>
+#include <dirent.h>
+#include "process.h"
 
 static FlxProcPCB_t kprocs[FLX_PROC_MAX_PROCS] = {0};
 

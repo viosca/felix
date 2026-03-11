@@ -1,6 +1,6 @@
 [submodule "external/optparse"]
-	path = .external/optparse
+	path = external/optparse
 	url = https://github.com/skeeto/optparse.git
 [submodule "external/linenoise"]
-	path = .external/linenoise
+	path = external/linenoise
 	url = https://github.com/viosca/linenoise-felix.git
