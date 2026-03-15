@@ -13,9 +13,15 @@ void felix_init(void) {
     flx_fs_bin_init();         /* Mounts /bin and registers the executables! */
 }
 
-int felix_register_uart(int dev_id, void *hw_instance) {
+int felix_register_uart(int dev_id, void *hw_instance, const FlxUartOps_t *ops) {
+    int ret;
+
     /* Route the opaque hardware pointer safely down to the HAL */
-    serial_init(dev_id, hw_instance);
+    /* The OS blindly passes whatever ops table the board gave it down to the driver */
+    ret = serial_init(dev_id, hw_instance, ops);
+    if (ret != 0) {
+        return ret;
+    }
 
     FlxDev_t *console_dev = flx_dev_get(0);
     if (!console_dev)
