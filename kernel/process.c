@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <dirent.h>
 #include "process.h"
+#include "kernel/binfmt.h"
 
 static FlxProcPCB_t kprocs[FLX_PROC_MAX_PROCS] = {0};
 
@@ -211,10 +212,6 @@ int flx_proc_exec(const char *path, int argc, char **argv) {
         return -1;
     }
 
-    /* Execute the kernel payload safely */
-    if (cmd_node->file.cmd && cmd_node->file.cmd->execute) {
-        return cmd_node->file.cmd->execute(argc, argv);
-    }
-
-    return -1;
+    /* Hand the file's raw data payload over to the Binary Format Loader! */
+    return flx_load_binary(cmd_node->data, argc, argv);
 }

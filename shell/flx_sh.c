@@ -9,89 +9,13 @@
 #include "linenoise.h"
 #include "shell/flx_sh.h"
 #include "shell/flx_sh_history.h"
+#include "shell/flx_sh_completion.h"
+#include "shell/flx_sh_builtins.h"
 
-/* =========================================================================
- * Shell Auto-Completion Callback
- * ========================================================================= */
+#define OPTPARSE_IMPLEMENTATION
+#include "optparse.h"
 
-static void flx_sh_completion(const char *buf, linenoiseCompletions *lc) {
-    char prefix[256];
-    strncpy(prefix, buf, sizeof(prefix) - 1);
-    prefix[sizeof(prefix) - 1] = '\0';
-
-    /* Isolate the current word being typed */
-    char *last_word = strrchr(prefix, ' ');
-    if (last_word) {
-        last_word++; /* Skip the space */
-    } else {
-        last_word = prefix; /* It's the first word in the buffer */
-    }
-
-    char dir_path[256] = ".";
-    char search_prefix[256] = "";
-
-    /* Separate the directory path from the partial filename */
-    char *last_slash = strrchr(last_word, '/');
-    if (last_slash) {
-        int dir_len = last_slash - last_word;
-        if (dir_len == 0) {
-            strcpy(dir_path, "/"); /* e.g., typing "/bi" */
-        } else {
-            strncpy(dir_path, last_word, dir_len);
-            dir_path[dir_len] = '\0';
-        }
-        strcpy(search_prefix, last_slash + 1);
-    } else {
-        strcpy(search_prefix, last_word);
-        /* If it's the very first word and no slash, auto-complete from /bin */
-        if (last_word == prefix) {
-            strcpy(dir_path, "/bin");
-        }
-    }
-
-    /* Ask the VFS for the directory contents! */
-    DIR *dir = opendir(dir_path);
-    if (!dir) return;
-
-    struct dirent *entry;
-    int search_len = strlen(search_prefix);
-
-    while ((entry = readdir(dir)) != NULL) {
-        if (strncmp(entry->d_name, search_prefix, search_len) == 0) {
-            /* Skip hidden files unless we explicitly typed a dot */
-            if (entry->d_name[0] == '.' && search_prefix[0] != '.') continue;
-
-            char completion[512];
-            int base_len = last_word - prefix;
-
-            /* Reconstruct the buffer string */
-            if (last_slash) {
-                if (strcmp(dir_path, "/") == 0) {
-                    snprintf(completion, sizeof(completion), "%.*s/%s", base_len, prefix, entry->d_name);
-                } else {
-                    snprintf(completion, sizeof(completion), "%.*s%s/%s", base_len, prefix, dir_path, entry->d_name);
-                }
-            } else {
-                snprintf(completion, sizeof(completion), "%.*s%s", base_len, prefix, entry->d_name);
-            }
-
-            /* Use POSIX stat to check if it's a directory, and append a slash if so */
-            struct stat st;
-            char full_path[512];
-            snprintf(full_path, sizeof(full_path), "%s/%s", dir_path, entry->d_name);
-
-            if (stat(full_path, &st) == 0 && S_ISDIR(st.st_mode)) {
-                strcat(completion, "/");
-            } else {
-                strcat(completion, " "); /* Add a space after a completed file or command! */
-            }
-
-            linenoiseAddCompletion(lc, completion);
-        }
-    }
-    closedir(dir);
-}
-
+#if 0
 /* =========================================================================
  * Shell Builtins (Commands that MUST modify shell state)
  * ========================================================================= */
@@ -125,7 +49,7 @@ static int flx_sh_execute_builtin(int argc, char **argv) {
     }
     return -1;
 }
-
+#endif
 /* =========================================================================
  * Main Command Execution Pipeline
  * ========================================================================= */
@@ -133,10 +57,16 @@ static int flx_sh_execute_builtin(int argc, char **argv) {
 void flx_sh_execute_line(const char *raw_line) {
     if (!raw_line || strlen(raw_line) == 0) return;
 
-    char expanded_line[256];
+    /* Move the 256-byte array off the stack to protect the CPU */
+    char *expanded_line = malloc(256);
+    if (!expanded_line) {
+        FLX_SH_ERR("Out of memory\n");
+        return;
+    }
 
     /* STAGE 1: History Expansion (e.g. !!, !-2) */
-    if (!flx_sh_history_expand(raw_line, expanded_line, sizeof(expanded_line))) {
+    if (!flx_sh_history_expand(raw_line, expanded_line, 256)) {
+        free(expanded_line);
         return; /* History event not found */
     }
 
@@ -145,11 +75,13 @@ void flx_sh_execute_line(const char *raw_line) {
     /* Lexical Analysis & Variable Expansion */
     if (wordexp(expanded_line, &p, 0) != 0) {
         FLX_SH_ERR("syntax error\n");
+        free(expanded_line);
         return;
     }
 
     if (p.we_wordc == 0) {
         wordfree(&p);
+        free(expanded_line);
         return;
     }
 
@@ -160,6 +92,7 @@ void flx_sh_execute_line(const char *raw_line) {
     if (flx_sh_is_builtin(argv[0])) {
         flx_sh_execute_builtin(argc, argv);
         wordfree(&p);
+        free(expanded_line);
         return;
     }
 
@@ -173,6 +106,7 @@ void flx_sh_execute_line(const char *raw_line) {
     }
 
     wordfree(&p);
+    free(expanded_line);
 }
 /* =========================================================================
  * Shell Statement Separator Logic
@@ -213,10 +147,22 @@ static void flx_sh_split_and_execute(char *line) {
  * Shell Entry Point
  * ========================================================================= */
 
-int flx_sh_main(int argc, char **argv) {
-    char *line;
+/* Group the main shell state arrays into a heap context */
+typedef struct {
     char prompt[256];
     char cwd[256];
+    char expanded_line[512];
+} FlxMainCtx_t;
+
+int flx_sh_main(int argc, char **argv) {
+    char *line;
+
+    /* Allocate the shell's running state on the heap */
+    FlxMainCtx_t *ctx = malloc(sizeof(FlxMainCtx_t));
+    if (!ctx) {
+        printf("Felix OS: Out of Memory! Cannot start shell.\n");
+        return -1;
+    }
 
     printf("Welcome to Felix OS!\n");
 
@@ -225,35 +171,34 @@ int flx_sh_main(int argc, char **argv) {
     linenoiseSetCompletionCallback(flx_sh_completion);
 
     while (1) {
-        if (getcwd(cwd, sizeof(cwd))) {
-            snprintf(prompt, sizeof(prompt), "felix:%s> ", cwd);
+        if (getcwd(ctx->cwd, sizeof(ctx->cwd))) {
+            snprintf(ctx->prompt, sizeof(ctx->prompt), "felix:%s> ", ctx->cwd);
         } else {
-            snprintf(prompt, sizeof(prompt), "felix:> ");
+            snprintf(ctx->prompt, sizeof(ctx->prompt), "felix:> ");
         }
 
         /* Hand over terminal control to linenoise */
-        line = linenoise(prompt);
+        line = linenoise(ctx->prompt);
 
         if (line == NULL) {
             break; /* EOF or Ctrl+D received */
         }
 
         if (line[0] != '\0') {
-            char expanded_line[512];
-
             /* EXPAND FIRST: Pre-process the history tokens */
-            if (flx_sh_history_expand(line, expanded_line, sizeof(expanded_line))) {
+            if (flx_sh_history_expand(line, ctx->expanded_line, sizeof(ctx->expanded_line))) {
 
                 /* ADD TO HISTORY: Only save the cleanly expanded command! */
-                linenoiseHistoryAdd(expanded_line);
+                linenoiseHistoryAdd(ctx->expanded_line);
 
                 /* EXECUTE: Push it down the pipeline */
-                flx_sh_split_and_execute(expanded_line);
+                flx_sh_split_and_execute(ctx->expanded_line);
             }
         }
 
         free(line); /* Free the buffer allocated by linenoise */
     }
 
+    free(ctx); /* Clean up if the shell loop is ever exited */
     return 0;
 }

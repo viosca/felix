@@ -14,6 +14,11 @@ int flx_fs_bin_cmd_ls(int argc, char **argv) {
     bool show_all = false;
     bool long_format = false;
 
+    /* Check how the user invoked this function */
+    if (strcmp(argv[0], "ll") == 0) {
+        long_format = true;
+    }
+
     optparse_init(&options, argv);
     while ((option = optparse(&options, "al")) != -1) {
         switch (option) {
