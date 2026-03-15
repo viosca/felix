@@ -74,18 +74,18 @@ Modern embedded systems often sit in an awkward gap: they are too powerful for s
 ## ⚖️ The Cooperative Philosophy **(Planned)**
 Unlike preemptive RTOSes, Felix operates on a **"Polite Citizen"** model. 
 * **No Preemption:** Tasks are never forcibly interrupted by the scheduler.
-* **Explicit Yielding:**  Performance and responsiveness are managed by the programmer using `yield()`, ensuring that context switches only happen at logical boundaries.
-* **Deterministic I/O:**  Ideal for streaming large data sets where timing and sequence are critical.
+* **Explicit Yielding:** **(Planned)** Performance and responsiveness are managed by the programmer using `yield()`, ensuring that context switches only happen at logical boundaries.
+* **Deterministic I/O:** **(Planned)** Ideal for streaming large data sets where timing and sequence are critical.
 
 ---
 
-## 📂 Project Structure 
-* `/arch`: **(Planned)** Architecture-specific assembly and context-switching (RISC-V/ARM).
-* `/kernel`: The core scheduler and task management.
+## 📂 Project Structure (Planned)
+* `/arch`:  Architecture-specific assembly and context-switching (RISC-V/ARM).
+* `/drivers`: Hardware agnostic drivers.
+* `/kernel`: **(Planned)** The core scheduler and task management.
 * `/posix`: Syscall implementations and standard C library "un-stubbing."
+* `/shell`: The `felix` CLI and userland utilities.
 * `/vfs`: Virtual File System and device registration logic.
-* `/shell`: The `frell` CLI and userland utilities.
-* `/platform`: Hardware-specific drivers (HAL).
 
 ---
 
@@ -94,4 +94,5 @@ Add as many directories, subdirectories, files and executables as your project n
 * `/`: The root directory.
 * `/bin`: A bin directory.
 * `/dev`: (in process) A dynamic device directory.
+* `/etc`: (in process) A place for configuration file.
 * `/test`: A home for Unit tests.
