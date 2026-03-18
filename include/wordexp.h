@@ -23,6 +23,9 @@
 #define WRDE_CMDSUB   3         /* Command substitution attempted */
 #define WRDE_NOSPACE  4         /* Out of memory */
 #define WRDE_SYNTAX   5         /* Syntax error (e.g., unclosed quotes) */
+#define WRDE_UNKNOWN  6
+
+const char const *worderror(unsigned int werrno);
 
 /* The wordexp structure */
 typedef struct {

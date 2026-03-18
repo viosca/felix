@@ -38,8 +38,10 @@ typedef struct {
 //extern FlxPCB_t *g_current_process;
 
 void flx_proc_init_first(void);
-int flx_proc_fd_bind(int pid, int fd, FlxDev_t *dev);
-FlxDev_t *flx_proc_dev_get(int fd);
+int flx_proc_fd_bind(int fd, FlxDev_t *dev);
+
+FlxDev_t *flx_proc_fd_dev_get(int fd);
+
 int flx_proc_getpid(void);
 
 FlxVfsNode_t *flx_proc_cwd_node_get(void);

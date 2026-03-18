@@ -1,52 +1,54 @@
-#include <stddef.h>
+/* @file flx_fs_bin.c
+ */
 #include <sys/stat.h>
+#include <stddef.h>
 #include "kernel/vfs.h"
 #include "fs/bin/flx_fs_bin.h"
 #include "fs/bin/flx_fs_bin_cmds.h"
-#include <fs/bin/flx_fs_bin_cmd_ls.h>
+#include "fs/bin/flx_fs_bin_cmd_ls.h"
 
-/* Forward declaration of the directory node so children can reference it as parent */
-static FlxVfsNode_t node_bin;
+#define FLX_MAX_BIN_CHILDREN 64
 
-/* Statically declare each command node as its own variable */
-/* Update your declarations in fs/bin/flx_fs_bin.c to match the new 6-argument macro: */
+static FlxVfsNode_t *bin_children[FLX_MAX_BIN_CHILDREN + 1];
+static int bin_node_count = 0;
 
-//FLX_VFS_DECLARE_CMD(node_ls, "ls", &node_bin, flx_fs_bin_cmd_ls, NULL, "List directory contents");
-FLX_BINFMT_DECLARE_PAYLOAD(payload_ls, flx_fs_bin_cmd_ls, NULL, "List directory contents");
-FLX_VFS_DECLARE_NODE(node_ls,  "ls",  &node_bin, &payload_ls);
-FLX_VFS_DECLARE_NODE(node_ll,  "ll",  &node_bin, &payload_ls);
-FLX_VFS_DECLARE_NODE(node_dir, "dir", &node_bin, &payload_ls);
-
-FLX_VFS_DECLARE_CMD(node_echo, "echo", &node_bin, flx_fs_bin_cmd_echo, NULL, "Print text to the terminal");
-FLX_VFS_DECLARE_CMD(node_which, "which", &node_bin, flx_fs_bin_cmd_which, NULL, "Locate a command");
-FLX_VFS_DECLARE_CMD(node_pwd, "pwd", &node_bin, flx_fs_bin_cmd_pwd, NULL, "Print working directory");
-FLX_VFS_DECLARE_CMD(node_clear, "clear", &node_bin, flx_fs_bin_cmd_clear, NULL, "Clear the terminal screen");
-FLX_VFS_DECLARE_CMD(node_help, "help", &node_bin, flx_fs_bin_cmd_help, NULL, "Display built-in commands");
-
-/* 2. Compile-time array of pointers to those nodes (NULL-terminated) */
-static FlxVfsNode_t *bin_children[] = {
-    &node_ls,
-    &node_echo,
-    &node_which,
-    &node_pwd,
-    &node_clear,
-    &node_help,
-    NULL
-};
-
-/* 3. The /bin directory node itself */
 static FlxVfsNode_t node_bin = {
     .name = "bin",
-    .parent = NULL,
     .mode = S_IFDIR | 0755,
     .size = 0,
     .dir = { .children = bin_children }
 };
 
-int flx_fs_bin_init(void) {
-    /* No runtime loops or pointer assignments required!
-     * The entire tree structure is resolved by the linker. */
+int flx_fs_bin_register(const char *name, int (*main_func)(int argc, char **argv)) {
+    if (bin_node_count >= FLX_MAX_BIN_CHILDREN) return -1;
 
-    /* Mount to the root switch */
-    return flx_vfs_mount(&node_bin, "/bin");
+    /* Ask the VFS core to generate the executable payload */
+    FlxVfsNode_t *node = flx_vfs_create_exec_node(name, main_func);
+    if (!node) return -1;
+
+    node->parent = &node_bin;
+
+    /* Link it into the directory */
+    bin_children[bin_node_count++] = node;
+    bin_children[bin_node_count] = NULL;
+
+    return 0;
+}
+
+int flx_fs_bin_init(void) {
+    bin_children[0] = NULL;
+    bin_node_count = 0;
+    int status = flx_vfs_mount(&node_bin, "/bin");
+    if (status)
+        return status;
+
+    status |= flx_fs_bin_register("dir", flx_fs_bin_cmd_ls);
+    status |= flx_fs_bin_register("echo", flx_fs_bin_cmd_echo);
+    status |= flx_fs_bin_register("help", flx_fs_bin_cmd_help);
+    status |= flx_fs_bin_register("ll", flx_fs_bin_cmd_ls);
+    status |= flx_fs_bin_register("ls", flx_fs_bin_cmd_ls);
+    status |= flx_fs_bin_register("pwd", flx_fs_bin_cmd_pwd);
+    status |= flx_fs_bin_register("which", flx_fs_bin_cmd_which);
+    status |= flx_fs_bin_register("tree", flx_fs_bin_cmd_tree);
+    return status;
 }

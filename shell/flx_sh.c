@@ -6,82 +6,85 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <wordexp.h>
+#include <limits.h>
 #include "linenoise.h"
 #include "shell/flx_sh.h"
 #include "shell/flx_sh_history.h"
-#include "shell/flx_sh_completion.h"
 #include "shell/flx_sh_builtins.h"
-
+#include "shell/flx_sh_completion.h"
 #define OPTPARSE_IMPLEMENTATION
 #include "optparse.h"
 
-#if 0
 /* =========================================================================
- * Shell Builtins (Commands that MUST modify shell state)
+ * Shell Command Metadata Registry (Autocompletion & Help)
  * ========================================================================= */
 
-static bool flx_sh_is_builtin(const char *cmd) {
-    if (!cmd) return false;
-    return (strcmp(cmd, "cd") == 0) ||
-           (strcmp(cmd, "history") == 0) ||
-           (strcmp(cmd, "exit") == 0);
+#define FLX_SH_MAX_META 64
+
+typedef struct {
+    const char *name;
+    void (*complete_func)(const char *prefix, void *lc);
+    const char *short_help;
+} FlxCmdMeta_t;
+
+static FlxCmdMeta_t g_cmd_meta[FLX_SH_MAX_META];
+static int g_cmd_meta_count = 0;
+
+int flx_sh_register_meta(const char *name, void (*comp_func)(const char*, void*), const char *help) {
+    if (g_cmd_meta_count >= FLX_SH_MAX_META) return -1;
+    g_cmd_meta[g_cmd_meta_count].name = name;
+    g_cmd_meta[g_cmd_meta_count].complete_func = comp_func;
+    g_cmd_meta[g_cmd_meta_count].short_help = help;
+    g_cmd_meta_count++;
+    return 0;
 }
 
-static int flx_sh_execute_builtin(int argc, char **argv) {
-    if (strcmp(argv[0], "cd") == 0) {
-        const char *target = (argc > 1) ? argv[1] : "/";
-        if (chdir(target) != 0) {
-            FLX_SH_ERR("cd: %s: No such file or directory\n", target);
-            return 1;
+void* flx_sh_get_completer(const char *name) {
+    for(int i = 0; i < g_cmd_meta_count; i++) {
+        if(strcmp(g_cmd_meta[i].name, name) == 0) {
+            return (void*)g_cmd_meta[i].complete_func;
         }
-        return 0;
     }
-    else if (strcmp(argv[0], "history") == 0) {
-        int count = linenoiseHistoryGetCount();
-        for (int i = 0; i < count; i++) {
-            printf("  %d  %s\n", i + 1, linenoiseHistoryGet(i));
-        }
-        return 0;
-    }
-    else if (strcmp(argv[0], "exit") == 0) {
-        printf("exit\n");
-        exit(0);
-    }
-    return -1;
+    return NULL;
 }
-#endif
+
 /* =========================================================================
  * Main Command Execution Pipeline
  * ========================================================================= */
 
 void flx_sh_execute_line(const char *raw_line) {
+    int status = 0;
+
     if (!raw_line || strlen(raw_line) == 0) return;
 
-    /* Move the 256-byte array off the stack to protect the CPU */
-    char *expanded_line = malloc(256);
+    /* Move the array off the stack to protect the CPU */
+    static char expanded_line[LINE_MAX];
+    //char *expanded_line = malloc(LINE_MAX);
     if (!expanded_line) {
         FLX_SH_ERR("Out of memory\n");
         return;
     }
 
     /* STAGE 1: History Expansion (e.g. !!, !-2) */
-    if (!flx_sh_history_expand(raw_line, expanded_line, 256)) {
-        free(expanded_line);
+    if (!flx_sh_history_expand(raw_line, expanded_line, LINE_MAX)) {
+        //free(expanded_line);
         return; /* History event not found */
     }
 
     wordexp_t p;
 
+
+    status = wordexp(expanded_line, &p, 0);
     /* Lexical Analysis & Variable Expansion */
-    if (wordexp(expanded_line, &p, 0) != 0) {
-        FLX_SH_ERR("syntax error\n");
-        free(expanded_line);
+    if (status != 0) {
+        FLX_SH_ERR("syntax error: %s\n", worderror(status));
+        //free(expanded_line);
         return;
     }
 
     if (p.we_wordc == 0) {
         wordfree(&p);
-        free(expanded_line);
+        //free(expanded_line);
         return;
     }
 
@@ -92,12 +95,12 @@ void flx_sh_execute_line(const char *raw_line) {
     if (flx_sh_is_builtin(argv[0])) {
         flx_sh_execute_builtin(argc, argv);
         wordfree(&p);
-        free(expanded_line);
+        //free(expanded_line);
         return;
     }
 
     /* EXTERNAL BINARY DELEGATION ($PATH search via execvp) */
-    int status = execvp(argv[0], argv);
+    status = execvp(argv[0], argv);
 
     if (status == -1) {
         FLX_SH_ERR("%s: command not found\n", argv[0]);
@@ -106,7 +109,7 @@ void flx_sh_execute_line(const char *raw_line) {
     }
 
     wordfree(&p);
-    free(expanded_line);
+    //free(expanded_line);
 }
 /* =========================================================================
  * Shell Statement Separator Logic
@@ -149,16 +152,19 @@ static void flx_sh_split_and_execute(char *line) {
 
 /* Group the main shell state arrays into a heap context */
 typedef struct {
-    char prompt[256];
-    char cwd[256];
-    char expanded_line[512];
+    char prompt[PATH_MAX + 32];   /* Room for PATH_MAX + "felix:>" formatting */
+    char cwd[PATH_MAX];           /* Standard POSIX path limit */
+    char expanded_line[LINE_MAX]; /* Standard POSIX input line limit */
 } FlxMainCtx_t;
 
 int flx_sh_main(int argc, char **argv) {
     char *line;
 
     /* Allocate the shell's running state on the heap */
-    FlxMainCtx_t *ctx = malloc(sizeof(FlxMainCtx_t));
+    //FlxMainCtx_t *ctx = malloc(sizeof(FlxMainCtx_t));
+    static FlxMainCtx_t context;
+    memset(&context, 0, sizeof(context));
+    FlxMainCtx_t *ctx = &context;
     if (!ctx) {
         printf("Felix OS: Out of Memory! Cannot start shell.\n");
         return -1;

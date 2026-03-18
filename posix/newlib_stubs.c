@@ -64,37 +64,18 @@ void *sbrk(ptrdiff_t incr) {
  * Core Dispatchers (Libgloss Syscalls)
  * ========================================================================= */
 
-_ssize_t _read(int file, void *ptr, size_t len) {
-    FlxDev_t *dev = flx_proc_dev_get(file);
-
-    if (!dev || dev->type == FlxDevType_INVALID) {
-        errno = EBADF;
-        return -1;
-    }
-
-    if (dev->type == FlxDevType_UART) {
-        return tty_read(&dev->tty, ptr, len);
-    }
-
-    errno = ENODEV;
-    return -1;
+_ssize_t _read(int fd, void *buf, size_t count) {
+    return read(fd, buf, count);
 }
 
-_ssize_t _write(int file, const void *ptr, size_t len) {
-    FlxDev_t *dev = flx_proc_dev_get(file);
-
-    if (!dev || dev->type == FlxDevType_INVALID) {
-        errno = EBADF;
-        return -1;
-    }
-
-    if (dev->type == FlxDevType_UART) {
-        return serial_write(dev, ptr, len);
-    }
-
-    errno = ENODEV;
-    return -1;
+_ssize_t _write(int fd, const void *buf, size_t count) {
+    return write(fd, buf, count);
 }
+
+int _isatty(int fd) {
+    return isatty(fd);
+}
+
 
 int _ioctl(int file, int request, void *argp) {
     return ioctl(file, request, argp);
@@ -113,10 +94,3 @@ int _stat(const char *file, struct stat *st) {
     return stat(file, st);
 }
 
-int _isatty(int file) {
-    FlxDev_t *dev = flx_proc_dev_get(file);
-    if (!dev) {
-        errno = EBADF; return 0;
-    }
-    return (dev->type == FlxDevType_UART);
-}

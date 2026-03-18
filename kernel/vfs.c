@@ -66,5 +66,10 @@ int flx_vfs_stat(FlxVfsNode_t *node, struct stat *st) {
     st->st_mode = node->mode;
     st->st_size = node->size;
 
+    /* Expose Major/Minor numbers to the POSIX layer via st_rdev */
+    if (S_ISCHR(node->mode) || S_ISBLK(node->mode)) {
+        st->st_rdev = (dev_t)((uintptr_t)node->data);
+    }
+
     return 0;
 }

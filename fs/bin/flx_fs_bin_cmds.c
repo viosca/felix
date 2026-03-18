@@ -3,7 +3,10 @@
 #include <string.h>
 #include <stdlib.h>
 #include <sys/stat.h>
+#include <dirent.h>
+#include <limits.h>
 #include <fs/bin/flx_fs_bin_cmds.h>
+#include "kernel/process.h"
 
 int flx_fs_bin_cmd_echo(int argc, char **argv) {
     for (int i = 1; i < argc; i++) {
@@ -89,3 +92,4 @@ int flx_fs_bin_cmd_which(int argc, char **argv) {
 
     return 1; /* Command not found in PATH */
 }
+

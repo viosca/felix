@@ -22,6 +22,22 @@ typedef struct {
     size_t cap;
 } word_buffer_t;
 
+const char const *worderror(unsigned int werrno) {
+    static const char const *errstrs[] = {
+            [WRDE_SUCCESS] = "WRDE_SUCCESS",
+            [WRDE_BADCHAR] = "WRDE_BADCHAR",
+            [WRDE_BADVAL] =  "WRDE_BADVAL",
+            [WRDE_CMDSUB] =  "WRDE_CMDSUB",
+            [WRDE_NOSPACE] = "WRDE_NOSPACE",
+            [WRDE_SYNTAX] =  "WRDE_SYNTAX",
+            [WRDE_UNKNOWN] = "WRDE_UNKNOWN",
+    };
+    if (werrno > WRDE_SYNTAX) {
+        werrno = WRDE_UNKNOWN;
+    }
+    return errstrs[werrno];
+}
+
 static int buf_append(word_buffer_t *buf, char c) {
     if (buf->len + 1 >= buf->cap) {
         size_t new_cap = buf->cap == 0 ? 32 : buf->cap * 2;

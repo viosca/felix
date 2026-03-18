@@ -13,8 +13,6 @@
 
 typedef struct FlxVfsNode FlxVfsNode_t;
 
-#define FLX_VFS_MAX_PATH_LEN 256
-
 struct FlxVfsNode {
     const char *name;
     FlxVfsNode_t *parent;
@@ -60,6 +58,10 @@ FlxVfsNode_t *flx_vfs_root_get(void);
 FlxVfsNode_t *flx_vfs_path_resolve(FlxVfsNode_t *cwd_node, const char *path);
 
 /* POSIX API */
+
+/**
+ * @brief Performs a POSIX stat() on a node to retrieve size, permissions, and device IDs.
+ */
 int flx_vfs_stat(FlxVfsNode_t *node, struct stat *st);
 
 int flx_vfs_chdir(const char *path);
@@ -79,5 +81,15 @@ long flx_vfs_telldir(int fd);
 void flx_vfs_rewinddir(int fd);
 char *flx_vfs_get_path(FlxVfsNode_t *node, char *buf, size_t size);
 char *flx_vfs_getcwd(char *buf, size_t size);
+
+/**
+ * @brief Allocates an executable node and binary payload from the global kernel pool.
+ * @param name The filename of the command (e.g., "ls")
+ * @param main_func Function pointer to the command's entry point
+ * @return Pointer to the populated VFS Node, or NULL if the pool is full.
+ */
+FlxVfsNode_t* flx_vfs_create_exec_node(const char *name, int (*main_func)(int argc, char **argv));
+
+
 
 #endif /* FELIX_KERNEL_VFS_H */

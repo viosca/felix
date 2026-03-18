@@ -3,10 +3,51 @@
 #include <errno.h>
 #include "kernel/vfs.h"
 #include "kernel/process.h"
+#include "kernel/syscalls.h"
 
 /* =========================================================================
- * POSIX Working Directory System Calls (<unistd.h>)
+ * POSIX Standard I/O Operations
  * ========================================================================= */
+
+int close(int fd) {
+    if (sys_close(fd) == -1) {
+        errno = EBADF;
+        return -1;
+    }
+    return 0;
+}
+
+ssize_t read(int fd, void *buf, size_t count) {
+    int bytes_read = sys_read(fd, buf, count);
+    if (bytes_read == -1) {
+        errno = EBADF;
+        return -1;
+    }
+    return bytes_read;
+}
+
+ssize_t write(int fd, const void *buf, size_t count) {
+    int bytes_written = sys_write(fd, buf, count);
+    if (bytes_written == -1) {
+        errno = EBADF;
+        return -1;
+    }
+    return bytes_written;
+}
+
+int isatty(int fd) {
+    struct stat st;
+
+    /* If fstat succeeds and the file is a Character Device, it's a TTY! */
+    if (fstat(fd, &st) == 0) {
+        if (S_ISCHR(st.st_mode)) {
+            return 1;
+        }
+    }
+
+    errno = ENOTTY;
+    return 0;
+}
 
 /**
  * @brief Changes the current working directory of the calling process.
@@ -28,7 +69,7 @@ char *getcwd(char *buf, size_t size) {
     if (!buf || size == 0) return NULL;
     return flx_vfs_getcwd(buf, size);
 }
-
+#if 0
 /**
  * @brief Determines if a file descriptor refers to a terminal (TTY).
  * @param fd The file descriptor to test.
@@ -36,7 +77,7 @@ char *getcwd(char *buf, size_t size) {
  * otherwise 0 is returned, and errno is set to indicate the error.
  */
 int isatty(int fd) {
-    FlxDev_t *dev = flx_proc_dev_get(fd);
+    FlxDev_t *dev = flx_proc_dev_get(FLX_PROC_PID_SHELL, fd);
 
     if (!dev) {
         errno = EBADF;
@@ -52,3 +93,4 @@ int isatty(int fd) {
     errno = ENOTTY;
     return 0;
 }
+#endif

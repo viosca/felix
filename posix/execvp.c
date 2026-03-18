@@ -25,7 +25,7 @@ int execvp(const char *file, char *const argv[]) {
     }
 
     /* PATH Environment Variable Search */
-    const char *path_env = getenv("PATH");
+    const char *path_env = flx_proc_getenv("PATH");
     if (!path_env) path_env = "/bin"; /* Default fallback if unset */
 
     char path_copy[256];

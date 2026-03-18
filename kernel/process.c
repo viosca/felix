@@ -8,10 +8,28 @@
 
 static FlxProcPCB_t kprocs[FLX_PROC_MAX_PROCS] = {0};
 
+/* The global pointer to the currently running task */
+FlxProcPCB_t *g_current_task = NULL;
+
+/**
+ * @brief Internal accessor for the current task.
+ * Future-proofs the OS for SMP (Multi-core) by centralizing how the
+ * active PCB is retrieved.
+ */
+static inline FlxProcPCB_t *get_current_pcb(void) {
+    return g_current_task;
+}
+
+
 // ... existing code ...
 void flx_proc_init_first(void) {
     FlxProcPCB_t *pcb_shell = &kprocs[FLX_PROC_PID_SHELL];
+
+    /* Set the current task to the shell so all POSIX calls route here! */
+    g_current_task = pcb_shell;
+
     pcb_shell->pid = FLX_PROC_PID_SHELL;
+
     for (int i = 0; i < FLX_PROC_MAX_OPEN_FILES; i++) {
         pcb_shell->fds[i] = NULL;
     }
@@ -47,37 +65,51 @@ FlxProcPCB_t *flx_proc_pcb_get(int pid) {
     return &kprocs[pid];
 }
 
-int flx_proc_fd_bind(int pid, int fd, FlxDev_t *dev) {
+int flx_proc_fd_bind(int fd, FlxDev_t *dev) {
+    FlxProcPCB_t *pcb = get_current_pcb();
+    if (!pcb) return -1;
+
     if (fd_is_invalid(fd))
         return -1;
-    FlxProcPCB_t *pcb = flx_proc_pcb_get(pid);
+
     pcb->fds[fd] = dev;
     return 0;
 }
 
 
-FlxDev_t *flx_proc_dev_get(int fd) {
-    if (fd_is_invalid(fd))
-        return NULL;
-    FlxProcPCB_t *pcb = flx_proc_pcb_get(FLX_PROC_PID_SHELL);
-   return pcb->fds[fd];
+FlxDev_t *flx_proc_fd_dev_get(int fd) {
+    FlxProcPCB_t *pcb = get_current_pcb();
+    if (!pcb) return NULL;
+
+    if (fd < 0 || fd >= FLX_PROC_MAX_OPEN_FILES) return NULL;
+
+    return pcb->fds[fd];
 }
 
 int flx_proc_getpid(void) {
-    return flx_proc_pcb_get(FLX_PROC_PID_SHELL)->pid;
+    FlxProcPCB_t *pcb = get_current_pcb();
+    if (!pcb) return -1;
+
+    return pcb->pid;
 }
 
 FlxVfsNode_t *flx_proc_cwd_node_get(void) {
-    FlxProcPCB_t *pcb = flx_proc_pcb_get(FLX_PROC_PID_SHELL);
+    FlxProcPCB_t *pcb = get_current_pcb();
+    if (!pcb) return NULL;
+
     return pcb->cwd;
 }
 FlxVfsNode_t *flx_proc_cwd_node_set(FlxVfsNode_t *cwd_node) {
-    FlxProcPCB_t *pcb = flx_proc_pcb_get(FLX_PROC_PID_SHELL);
+    FlxProcPCB_t *pcb = get_current_pcb();
+    if (!pcb) return NULL;
+
     return pcb->cwd = cwd_node;
 }
 
 const char *flx_proc_cwd_name_get(void) {
-    FlxProcPCB_t *pcb = flx_proc_pcb_get(FLX_PROC_PID_SHELL);
+    FlxProcPCB_t *pcb = get_current_pcb();
+    if (!pcb) return NULL;
+
     if (pcb->cwd) {
         return kprocs[FLX_PROC_PID_SHELL].cwd->name;
     }
@@ -103,9 +135,10 @@ char *flx_proc_getcwd(char *buf, size_t size) {
  * ========================================================================= */
 
 char *flx_proc_getenv(const char *name) {
-    if (!name) return NULL;
+    FlxProcPCB_t *pcb = get_current_pcb();
+    if (!pcb || !name) return NULL;
+
     size_t name_len = strlen(name);
-    FlxProcPCB_t *pcb = &kprocs[FLX_PROC_PID_SHELL]; // Hardcoded to shell for now
 
     for (int i = 0; i < FLX_PROC_MAX_ENV_VARS; i++) {
         /* Check if slot is active and starts with "KEY=" */
@@ -121,10 +154,11 @@ char *flx_proc_getenv(const char *name) {
 }
 
 int flx_proc_setenv(const char *name, const char *value, int overwrite) {
-    if (!name || !value || strchr(name, '=')) return -1;
+    FlxProcPCB_t *pcb = get_current_pcb();
+    if (!pcb || !name || !value || strchr(name, '=')) return -1;
 
     size_t name_len = strlen(name);
-    FlxProcPCB_t *pcb = &kprocs[FLX_PROC_PID_SHELL];
+
     int empty_slot = -1;
 
     for (int i = 0; i < FLX_PROC_MAX_ENV_VARS; i++) {
@@ -152,10 +186,10 @@ int flx_proc_setenv(const char *name, const char *value, int overwrite) {
 }
 
 int flx_proc_unsetenv(const char *name) {
-    if (!name || strchr(name, '=')) return -1;
+    FlxProcPCB_t *pcb = get_current_pcb();
+    if (!pcb || !name || strchr(name, '=')) return -1;
 
     size_t name_len = strlen(name);
-    FlxProcPCB_t *pcb = &kprocs[FLX_PROC_PID_SHELL];
 
     for (int i = 0; i < FLX_PROC_MAX_ENV_VARS; i++) {
         if (pcb->env[i][0] != '\0' &&
@@ -173,8 +207,9 @@ int flx_proc_unsetenv(const char *name) {
 /* --- Directory Stream Management --- */
 
 int flx_proc_fd_dir_alloc(void) {
-    /* Hardcoded to the shell PCB until multi-processing is added */
-    FlxProcPCB_t *pcb = &kprocs[FLX_PROC_PID_SHELL];
+    FlxProcPCB_t *pcb = get_current_pcb();
+    if (!pcb) return -1;
+
     for (int i = 0; i < FLX_PROC_MAX_DIR_STREAMS; i++) {
         if (!pcb->dir_in_use[i]) {
             pcb->dir_in_use[i] = true;
@@ -185,7 +220,9 @@ int flx_proc_fd_dir_alloc(void) {
 }
 
 FlxDir_t *flx_proc_fd_dir_get(int fd) {
-    FlxProcPCB_t *pcb = &kprocs[FLX_PROC_PID_SHELL];
+    FlxProcPCB_t *pcb = get_current_pcb();
+    if (!pcb) return NULL;
+
     if (fd < 0 || fd >= FLX_PROC_MAX_DIR_STREAMS || !pcb->dir_in_use[fd]) {
         return NULL;
     }
@@ -193,7 +230,9 @@ FlxDir_t *flx_proc_fd_dir_get(int fd) {
 }
 
 void flx_proc_fd_dir_free(int fd) {
-    FlxProcPCB_t *pcb = &kprocs[FLX_PROC_PID_SHELL];
+    FlxProcPCB_t *pcb = get_current_pcb();
+    if (!pcb) return;
+
     if (fd >= 0 && fd < FLX_PROC_MAX_DIR_STREAMS) {
         pcb->dir_in_use[fd] = false;
     }
