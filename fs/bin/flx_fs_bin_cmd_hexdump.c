@@ -90,7 +90,7 @@ int flx_fs_bin_cmd_hexdump(int argc, char **argv) {
     /* Read the file in 16-byte chunks until EOF */
     while ((bytes_read = fread(buf, 1, sizeof(buf), fp)) > 0) {
         /* 1. Print the offset */
-        printf("%08zx  ", offset);
+        printf("%08x  ", offset);
 
         /* 2. Print the hex bytes */
         for (size_t i = 0; i < 16; i++) {

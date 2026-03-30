@@ -54,6 +54,8 @@ int flx_proc_fd_install(int fd, FlxVfsNode_t *node);
 int flx_proc_fd_free(int fd);
 
 FlxOpenFile_t *flx_proc_fd_get(int fd);
+off_t flx_proc_fd_offset_get(int fd);
+int flx_proc_fd_offset_set(int fd, off_t offset);
 
 int flx_proc_getpid(void);
 

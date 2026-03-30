@@ -121,6 +121,20 @@ FlxOpenFile_t *flx_proc_fd_get(int fd) {
     return get_file_desc(fd);
 }
 
+ off_t flx_proc_fd_offset_get(int fd) {
+     FlxOpenFile_t *file = get_file_desc(fd);
+     return (file && file->in_use) ? file->offset : (off_t)-1;
+ }
+
+ int flx_proc_fd_offset_set(int fd, off_t offset) {
+     FlxOpenFile_t *file = get_file_desc(fd);
+     if (!file || !file->in_use || offset < 0) return -1;
+
+     file->offset = offset;
+     return 0;
+ }
+
+
 /* =========================================================================
  * Process Information
  * ========================================================================= */

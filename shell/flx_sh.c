@@ -131,7 +131,7 @@ int flx_sh_main(int argc, char **argv) {
         return -1;
     }
 
-    printf("Welcome to Felix OS!\n");
+    printf("\nWelcome to Felix OS!\n");
 
     /* Initialize Linenoise Features */
     linenoiseHistorySetMaxLen(100);

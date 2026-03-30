@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stddef.h>
 #include <string.h>
+#include <errno.h>
 
 #include "kernel/vfs.h"
 #include "kernel/process.h"
@@ -150,4 +151,16 @@ ssize_t flx_vfs_read(FlxVfsNode_t *node, void *buf, size_t count, off_t offset) 
     }
 
     return -1; /* Not a readable file type */
+}
+
+ssize_t flx_vfs_write(FlxVfsNode_t *node, const void *buf, size_t count, off_t offset) {
+    if (!node || !buf) return -EFAULT;
+
+    /* If the filesystem driver provides a write operation (e.g., TmpFS), execute it */
+    if (node->ops && node->ops->write) {
+        return node->ops->write(node, buf, count, offset);
+    }
+
+    /* If it doesn't have a write op (like static BinFS/EtcFS nodes), it is read-only */
+    return -EROFS;
 }

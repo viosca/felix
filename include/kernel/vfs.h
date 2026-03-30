@@ -100,6 +100,7 @@ FlxVfsNode_t *flx_vfs_path_resolve(FlxVfsNode_t *cwd_node, const char *path);
 /* POSIX API */
 int flx_vfs_stat(FlxVfsNode_t *node, struct stat *st);
 ssize_t flx_vfs_read(FlxVfsNode_t *node, void *buf, size_t count, off_t offset);
+ssize_t flx_vfs_write(FlxVfsNode_t *node, const void *buf, size_t count, off_t offset);
 
 int flx_vfs_chdir(const char *path);
 

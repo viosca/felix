@@ -2,9 +2,10 @@
 #include "kernel/syscalls.h"
 #include "kernel/vfs.h"
 #include "kernel/process.h"
-#include "kernel/devices.h"
 #include "kernel/time.h"
+#include "kernel/devices.h"
 #include "drivers/serial.h"
+#include <string.h>
 #include <stddef.h>
 #include <sys/stat.h>
 #include <stdint.h>
@@ -188,6 +189,7 @@ int sys_read(int fd, void *buf, size_t count) {
     if (!file || !file->in_use || !file->node) return -EBADF;
 
     FlxVfsNode_t *node = file->node;
+    if (S_ISDIR(node->mode)) return -EISDIR;
 
     if (S_ISCHR(node->mode)) {
         dev_t rdev = (dev_t)((uintptr_t)node->data);
@@ -198,14 +200,18 @@ int sys_read(int fd, void *buf, size_t count) {
         return (ret < 0) ? -EIO : ret;
     }
 
+    /* Is it a Regular File? (e.g., /bin/hexdump or a text file) */
     if (S_ISREG(node->mode)) {
-        if (!node->ops || !node->ops->read) return -ENOTSUP;
+        off_t current_offset = flx_proc_fd_offset_get(fd);
+        ssize_t bytes_read = flx_vfs_read(node, buf, count, current_offset);
 
-        ssize_t ret = node->ops->read(node, buf, count, file->offset);
-        if (ret > 0) {
-            file->offset += ret;
+        if (bytes_read < 0) return -EIO;
+
+        /* Advance the read head if we successfully read data */
+        if (bytes_read > 0) {
+            flx_proc_fd_offset_set(fd, current_offset + bytes_read);
         }
-        return ret;
+        return bytes_read;
     }
 
     return -EINVAL;
@@ -218,6 +224,7 @@ int sys_write(int fd, const void *buf, size_t count) {
     if (!file || !file->in_use || !file->node) return -EBADF;
 
     FlxVfsNode_t *node = file->node;
+    if (S_ISDIR(node->mode)) return -EISDIR;
 
     if (S_ISCHR(node->mode)) {
         dev_t rdev = (dev_t)((uintptr_t)node->data);
@@ -228,17 +235,113 @@ int sys_write(int fd, const void *buf, size_t count) {
         return (ret < 0) ? -EIO : ret;
     }
 
+    /* Generic VFS Route: Handles TmpFS, FAT, etc. automatically */
     if (S_ISREG(node->mode)) {
-        if (!node->ops || !node->ops->write) return -ENOTSUP;
+        off_t current_offset = flx_proc_fd_offset_get(fd);
 
-        ssize_t ret = node->ops->write(node, buf, count, file->offset);
-        if (ret > 0) {
-            file->offset += ret;
+        /* Delegate entirely to the VFS */
+        ssize_t bytes_written = flx_vfs_write(node, buf, count, current_offset);
+
+        if (bytes_written < 0) return bytes_written; /* Pass up -EROFS or -EIO */
+
+        if (bytes_written > 0) {
+            flx_proc_fd_offset_set(fd, current_offset + bytes_written);
         }
-        return ret;
+        return bytes_written;
     }
 
     return -EINVAL;
+}
+
+/* =========================================================================
+ * Directory Stream System Calls
+ * ========================================================================= */
+
+int sys_opendir(const char *name) {
+    if (!name) return -EFAULT;
+
+    FlxVfsNode_t *dir_node = flx_vfs_path_resolve(flx_proc_cwd_node_get(), name);
+    if (!dir_node) return -ENOENT;
+    if (!S_ISDIR(dir_node->mode)) return -ENOTDIR;
+
+    int dir_fd = flx_proc_fd_dir_alloc();
+    if (dir_fd < 0) return -EMFILE; /* Too many open directories */
+
+    FlxDir_t *dir = flx_proc_fd_dir_get(dir_fd);
+    dir->node = dir_node;
+    dir->current_index = 0;
+
+    return dir_fd;
+}
+
+int sys_readdir(int fd, struct dirent *entry) {
+    if (!entry) return -EFAULT;
+
+    FlxDir_t *dir = flx_proc_fd_dir_get(fd);
+    if (!dir || !dir->in_use || !dir->node) return -EBADF;
+
+    /* Virtual Offset 0: The Current Directory "." */
+    if (dir->current_index == 0) {
+        entry->d_ino = 1;
+        strncpy(entry->d_name, ".", sizeof(entry->d_name) - 1);
+        entry->d_name[sizeof(entry->d_name) - 1] = '\0';
+        dir->current_index++;
+        return 1;
+    }
+
+    /* Virtual Offset 1: The Parent Directory ".." */
+    if (dir->current_index == 1) {
+        entry->d_ino = 1;
+        strncpy(entry->d_name, "..", sizeof(entry->d_name) - 1);
+        entry->d_name[sizeof(entry->d_name) - 1] = '\0';
+        dir->current_index++;
+        return 1;
+    }
+
+    /* Virtual Offset 2+: The Physical Children */
+    int physical_index = dir->current_index - 2;
+    FlxVfsNode_t **children = dir->node->dir.children;
+
+    if (!children || !children[physical_index]) {
+        return 0; /* EOF */
+    }
+
+    FlxVfsNode_t *child = children[physical_index];
+
+    entry->d_ino = 1; /* Dummy inode */
+    strncpy(entry->d_name, child->name, sizeof(entry->d_name) - 1);
+    entry->d_name[sizeof(entry->d_name) - 1] = '\0';
+
+    dir->current_index++;
+    return 1;
+}
+
+int sys_closedir(int fd) {
+    FlxDir_t *dir = flx_proc_fd_dir_get(fd);
+    if (!dir || !dir->in_use) return -EBADF;
+
+    flx_proc_fd_dir_free(fd);
+    return 0;
+}
+
+long sys_telldir(int fd) {
+    FlxDir_t *dir = flx_proc_fd_dir_get(fd);
+    if (!dir || !dir->in_use) return -EBADF;
+
+    return (long)dir->current_index;
+}
+
+int sys_seekdir(int fd, long loc) {
+    FlxDir_t *dir = flx_proc_fd_dir_get(fd);
+    if (!dir || !dir->in_use) return -EBADF;
+    if (loc < 0) return -EINVAL;
+
+    dir->current_index = loc;
+    return 0;
+}
+
+int sys_rewinddir(int fd) {
+    return sys_seekdir(fd, 0);
 }
 
 int sys_isatty(int fd) {

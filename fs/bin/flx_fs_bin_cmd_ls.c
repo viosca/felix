@@ -129,7 +129,7 @@ int flx_fs_bin_cmd_ls(int argc, char **argv) {
                 else if (S_ISCHR(st.st_mode)) type = 'c';
                 else if (S_ISBLK(st.st_mode)) type = 'b';
 
-                print_permissions(st.st_mode, perms, sizeof(perms));
+                print_permissions(st.st_mode, perms, sizeof(perms)-1);
 
                 /* If it's a device, print Major, Minor instead of Size! */
                 if (S_ISCHR(st.st_mode) || S_ISBLK(st.st_mode)) {

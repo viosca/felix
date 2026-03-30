@@ -4,11 +4,12 @@
 
 #include <sys/stat.h>
 #include <stddef.h>
+#include <dirent.h>
 
 /* =========================================================================
  * The OS Visibility Wall
  * The POSIX layer is ONLY allowed to include this file. It hides all
- * internal kernel data structures (like FlxVfsNode_t or FlxProcPCB_t).
+ * internal kernel data structures.
  * ========================================================================= */
 
 int sys_stat(const char *pathname, struct stat *statbuf);
@@ -35,7 +36,17 @@ int sys_ioctl(int fd, int request, void *arg);
 int sys_isatty(int fd);
 off_t sys_lseek(int fd, off_t offset, int whence);
 
+/* Directory Syscalls */
+int sys_opendir(const char *name);
+int sys_readdir(int fd, struct dirent *entry);
+int sys_closedir(int fd);
+
+long sys_telldir(int fd);
+int sys_seekdir(int fd, long loc);
+int sys_rewinddir(int fd);
+
 /* Directory & Path Syscalls */
+
 int sys_chdir(const char *path);
 char *sys_getcwd(char *buf, size_t size);
 
