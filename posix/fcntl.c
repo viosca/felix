@@ -24,11 +24,14 @@ int open(const char *pathname, int flags, ...) {
         va_end(args);
     }
 
-    int fd = sys_open(pathname, flags, mode);
-    if (fd == -1) {
-        errno = ENOENT; /* Safe default fallback error */
-        return -1;
+    /* Call the kernel gatekeeper */
+    int ret = sys_open(pathname, flags, mode);
+
+    /* Catch ALL negative kernel errors dynamically */
+    if (ret < 0) {
+        errno = -ret;
+        return -1;    /* Always return standard POSIX -1 to the user */
     }
 
-    return fd;
+    return ret; /* Return the valid FD */
 }

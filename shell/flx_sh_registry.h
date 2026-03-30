@@ -1,12 +1,7 @@
 #ifndef FLX_SH_REGISTRY_H
 #define FLX_SH_REGISTRY_H
 
-#include "linenoise.h"
-
-/**
- * @brief Function signature for custom autocompletion routines.
- */
-typedef void (*flx_sh_complete_cb)(const char *prefix, linenoiseCompletions *lc);
+#include "shell/flx_sh_completion.h" /* Pulls in the complete_cb typedef and linenoise.h */
 
 /**
  * @brief Registers a command's UI metadata (Autocompletion and Help) with the Shell.

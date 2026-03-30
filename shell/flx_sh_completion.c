@@ -1,8 +1,10 @@
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <sys/stat.h>
 #include <dirent.h>
 #include <limits.h>
+#include <stdbool.h>
 #include "linenoise.h"
 #include "shell/flx_sh_completion.h"
 #include "shell/flx_sh_registry.h"
@@ -24,11 +26,15 @@ void flx_sh_completion(const char *buf, linenoiseCompletions *lc) {
 
     char *last_word = strrchr(line_copy, ' ');
     char cmd_name[NAME_MAX] = {0};
+    int base_len = 0; /* Tracks the length of the string before the last word */
 
     if (last_word) {
         /* We are typing an argument (e.g., "ls /de[TAB]") */
         *last_word = '\0';
         last_word++;
+
+        /* Calculate how much of the original buffer we need to keep when reconstructing */
+        base_len = last_word - line_copy;
 
         char *first_space = strchr(line_copy, ' ');
         if (first_space) *first_space = '\0';
@@ -36,45 +42,91 @@ void flx_sh_completion(const char *buf, linenoiseCompletions *lc) {
     } else {
         /* We are typing the command itself (e.g., "l[TAB]") */
         last_word = line_copy;
+        base_len = 0;
     }
 
-    size_t prefix_len = strlen(last_word);
+    bool is_command = (cmd_name[0] == '\0');
+    bool has_slash = (strchr(last_word, '/') != NULL);
 
     /* =====================================================================
-     * STAGE 1: COMMAND-SPECIFIC DELEGATION (Arguments)
+     * STAGE 1: COMMAND-SPECIFIC DELEGATION (Arguments only)
      * ===================================================================== */
-    if (cmd_name[0] != '\0') {
+    if (!is_command) {
         flx_sh_complete_cb custom_complete = flx_sh_registry_get_completer(cmd_name);
         if (custom_complete) {
             custom_complete(last_word, lc);
+            return;
         }
-        return; /* If we are typing arguments, don't suggest command names */
+        /* If no custom completer is found, fall through to STAGE 3 */
+    }
+    /* =====================================================================
+     * STAGE 2: DYNAMIC $PATH SCANNING (First Word, No Slash)
+     * ===================================================================== */
+    else if (!has_slash) {
+        size_t prefix_len = strlen(last_word);
+
+        /* 1. Suggest Builtins */
+        for (int i = 0; ; i++) {
+            const char *b_name = flx_sh_get_builtin_name(i);
+            if (!b_name) break;
+            if (strncmp(b_name, last_word, prefix_len) == 0) {
+                linenoiseAddCompletion(lc, b_name);
+            }
+        }
+
+        /* 2. Dynamically scan all directories in our $PATH */
+        for (int p = 0; g_path_env[p] != NULL; p++) {
+            DIR *dir = opendir(g_path_env[p]);
+            if (!dir) continue;
+
+            struct dirent *entry;
+            while ((entry = readdir(dir)) != NULL) {
+                if (strncmp(entry->d_name, last_word, prefix_len) == 0) {
+                    linenoiseAddCompletion(lc, entry->d_name);
+                }
+            }
+            closedir(dir);
+        }
+        return; /* Stop here for bare commands! */
     }
 
     /* =====================================================================
-     * STAGE 2: DYNAMIC $PATH SCANNING (First Word)
+     * STAGE 3: FILE & PATH COMPLETION FALLBACK
+     * Handles arguments without custom completers, OR commands with explicit paths (e.g. ./bin)
      * ===================================================================== */
+    char search_dir[PATH_MAX] = ".";
+    const char *search_prefix = last_word;
+    char *last_slash = strrchr(last_word, '/');
 
-    /* 1. Suggest Builtins */
-    for (int i = 0; ; i++) {
-        const char *b_name = flx_sh_get_builtin_name(i);
-        if (!b_name) break;
-        if (strncmp(b_name, last_word, prefix_len) == 0) {
-            linenoiseAddCompletion(lc, b_name);
+    if (last_slash) {
+        /* Split the string at the slash to get the target directory */
+        size_t dir_len = last_slash - last_word;
+        if (dir_len == 0) {
+            /* Root directory special case: e.g., "/he" */
+            strncpy(search_dir, "/", PATH_MAX);
+        } else {
+            /* e.g., "/bin/he" -> "/bin" */
+            strncpy(search_dir, last_word, dir_len);
+            search_dir[dir_len] = '\0';
         }
+        search_prefix = last_slash + 1; /* The characters after the last slash */
     }
 
-    /* 2. Dynamically scan all directories in our $PATH */
-    for (int p = 0; g_path_env[p] != NULL; p++) {
-        DIR *dir = opendir(g_path_env[p]);
-        if (!dir) continue;
-
+    size_t prefix_len = strlen(search_prefix);
+    DIR *dir = opendir(search_dir);
+    if (dir) {
         struct dirent *entry;
         while ((entry = readdir(dir)) != NULL) {
-            if (strncmp(entry->d_name, last_word, prefix_len) == 0) {
-                /* Because we scan a generic directory, we don't care if it's
-                 * a linked builtin or an SD-card binary. It just works! */
-                linenoiseAddCompletion(lc, entry->d_name);
+            if (strncmp(entry->d_name, search_prefix, prefix_len) == 0) {
+                /* Skip hidden files unless the user explicitly started typing a '.' */
+                if (entry->d_name[0] == '.' && search_prefix[0] != '.') continue;
+
+                char full_completion[LINE_MAX];
+                /* Keep the command prefix, plus the directory path typed so far, then append the file match */
+                int keep_len = base_len + (last_slash ? (last_slash - last_word + 1) : 0);
+                snprintf(full_completion, LINE_MAX, "%.*s%s", keep_len, buf, entry->d_name);
+
+                linenoiseAddCompletion(lc, full_completion);
             }
         }
         closedir(dir);

@@ -10,20 +10,22 @@
 #include <unistd.h>
 #include "optparse.h"
 #include "limits.h"
+#include "kernel/binfmt.h"
 
 #define MAX_LS_ENTRIES 256
 
 /* =========================================================================
  * Shared Utility Functions
  * ========================================================================= */
-
-/* QSort comparison function for an array of strings */
+FLX_BINFMT_CMD_SECTION(flx_fs_bin_cmd_ls)
 static int compare_names(const void *a, const void *b) {
     const char *str_a = *(const char **)a;
     const char *str_b = *(const char **)b;
     return strcmp(str_a, str_b);
 }
 
+
+FLX_BINFMT_CMD_SECTION(flx_fs_bin_cmd_ls)
 static void print_permissions(mode_t mode, char *str, size_t strlen) {
     strncpy(str, "---------", strlen);
     if (strlen > 0 && mode & S_IRUSR) str[0] = 'r';
@@ -41,7 +43,7 @@ static void print_permissions(mode_t mode, char *str, size_t strlen) {
 /* =========================================================================
  * Command: ls
  * ========================================================================= */
-
+FLX_BINFMT_CMD_SECTION(flx_fs_bin_cmd_ls)
 int flx_fs_bin_cmd_ls(int argc, char **argv) {
     struct optparse options;
     optparse_init(&options, argv);
@@ -49,8 +51,11 @@ int flx_fs_bin_cmd_ls(int argc, char **argv) {
     bool long_format = false;
     bool show_all = false;
 
+    char *prog_name = strrchr(argv[0], '/');
+    prog_name = prog_name ? prog_name + 1 : argv[0]; /* Get the basename */
+
     /* BusyBox alias support: if command was invoked as 'll', force long format */
-    if (strcmp(argv[0], "ll") == 0) {
+    if (strcmp(prog_name, "ll") == 0) {
         long_format = true;
     }
 
@@ -116,6 +121,7 @@ int flx_fs_bin_cmd_ls(int argc, char **argv) {
             //char perms[10] = {0}; // 9 chars + null terminator
             char perms[4] = {0}; // 3 chars + null terminator (felix is not multi user).
             strncpy(perms, "---------", sizeof(perms)-1);
+            perms[sizeof(perms) - 1] = '\0';
 
             if (stat(full_path, &st) == 0) {
                 char type = '-';
@@ -158,6 +164,9 @@ int flx_fs_bin_cmd_ls(int argc, char **argv) {
     return 0;
 }
 
+
+//This keeps everything explicit, flexible, and completely prevents the macro from making dangerous assumptions about the layout of your C files!
+
 /* =========================================================================
  * Command: tree
  * ========================================================================= */
@@ -168,6 +177,7 @@ int flx_fs_bin_cmd_ls(int argc, char **argv) {
  * allowing us to correctly draw '    ' vs '|   ' down the tree.
  * @param use_vt Boolean to enable UTF-8 VT box drawing symbols instead of ASCII.
  */
+FLX_BINFMT_CMD_SECTION(flx_fs_bin_cmd_tree)
 static void print_tree_recursive(const char *base_path, int depth, uint32_t last_mask, bool use_vt) {
     if (depth > 31) return; /* Prevent bitmask overflow and excessive stack usage */
 
@@ -249,6 +259,7 @@ static void print_tree_recursive(const char *base_path, int depth, uint32_t last
     free(names);
 }
 
+FLX_BINFMT_CMD_SECTION(flx_fs_bin_cmd_tree)
 int flx_fs_bin_cmd_tree(int argc, char **argv) {
     struct optparse options;
     optparse_init(&options, argv);
@@ -280,3 +291,4 @@ int flx_fs_bin_cmd_tree(int argc, char **argv) {
 
     return 0;
 }
+

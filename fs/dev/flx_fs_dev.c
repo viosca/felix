@@ -8,7 +8,8 @@
 #define FLX_MAX_DEV_CHILDREN 64
 
 /* --- POSIX Major/Minor Device Macros --- */
-#define FLX_MAKEDEV(maj, min) (void*)((uintptr_t)(((maj & 0xFF) << 8) | (min & 0xFF)))
+/* Combines major and minor into a single 32-bit integer for dev_id */
+#define FLX_MAKEDEV(maj, min) (int)(((maj & 0xFF) << 8) | (min & 0xFF))
 
 /* Forward declaration for parent linking */
 static FlxVfsNode_t node_dev;
@@ -26,9 +27,11 @@ static FlxVfsNode_t *dev_children[FLX_MAX_DEV_CHILDREN + 1];
 
 static FlxVfsNode_t node_dev = {
     .name = "dev",
+    .flags = 0,
+    .parent = NULL,
     .mode = S_IFDIR | 0755,
-    .size = 0,
-    .dir = { .children = dev_children }
+    .dir = { .children = dev_children },
+    .ops = NULL
 };
 
 /* =========================================================================
@@ -44,10 +47,13 @@ int flx_fs_dev_register(const char *name, int major, int minor) {
 
     /* Populate the actual struct in the static memory pool */
     dev_nodes[i].name = name;
+    dev_nodes[i].flags = 0;
     dev_nodes[i].parent = &node_dev;
     dev_nodes[i].mode = S_IFCHR | 0666;
-    dev_nodes[i].size = 0;
-    dev_nodes[i].data = FLX_MAKEDEV(major, minor);
+
+    /* Store the combined Major/Minor number directly in the union! */
+    dev_nodes[i].dev_id = FLX_MAKEDEV(major, minor);
+    dev_nodes[i].ops = NULL;
 
     /* Link the pointer into the directory iteration array */
     dev_children[i] = &dev_nodes[i];

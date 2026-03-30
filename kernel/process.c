@@ -3,7 +3,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <dirent.h>
-#include "process.h"
+#include "kernel/process.h"
 #include "kernel/binfmt.h"
 
 static FlxProcPCB_t kprocs[FLX_PROC_MAX_PROCS] = {0};
@@ -11,98 +11,133 @@ static FlxProcPCB_t kprocs[FLX_PROC_MAX_PROCS] = {0};
 /* The global pointer to the currently running task */
 FlxProcPCB_t *g_current_task = NULL;
 
-/**
- * @brief Internal accessor for the current task.
- * Future-proofs the OS for SMP (Multi-core) by centralizing how the
- * active PCB is retrieved.
- */
 static inline FlxProcPCB_t *get_current_pcb(void) {
     return g_current_task;
 }
 
+/* =========================================================================
+ * Internal Static Helpers (DRY bounds checking)
+ * ========================================================================= */
 
-// ... existing code ...
+static inline FlxOpenFile_t *get_file_desc(int fd) {
+    FlxProcPCB_t *pcb = get_current_pcb();
+    if (!pcb || fd < 0 || fd >= FLX_PROC_MAX_OPEN_FILES) return NULL;
+    return &pcb->fds[fd];
+}
+
+static inline FlxDir_t *get_dir_desc(int fd) {
+    FlxProcPCB_t *pcb = get_current_pcb();
+    if (!pcb || fd < 0 || fd >= FLX_PROC_MAX_DIR_STREAMS) return NULL;
+    return &pcb->dir_streams[fd];
+}
+
+static inline int find_env_slot(FlxProcPCB_t *pcb, const char *name, size_t name_len) {
+    for (int i = 0; i < FLX_PROC_MAX_ENV_VARS; i++) {
+        if (pcb->env[i][0] != '\0' &&
+            strncmp(pcb->env[i], name, name_len) == 0 &&
+            pcb->env[i][name_len] == '=') {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/* =========================================================================
+ * Process Initialization
+ * ========================================================================= */
+
 void flx_proc_init_first(void) {
     FlxProcPCB_t *pcb_shell = &kprocs[FLX_PROC_PID_SHELL];
-
-    /* Set the current task to the shell so all POSIX calls route here! */
     g_current_task = pcb_shell;
-
     pcb_shell->pid = FLX_PROC_PID_SHELL;
 
     for (int i = 0; i < FLX_PROC_MAX_OPEN_FILES; i++) {
-        pcb_shell->fds[i] = NULL;
+        pcb_shell->fds[i].in_use = false;
+        pcb_shell->fds[i].node = NULL;
+        pcb_shell->fds[i].offset = 0;
     }
 
-    /* Initialize directory streams */
     for (int i = 0; i < FLX_PROC_MAX_DIR_STREAMS; i++) {
-        pcb_shell->dir_in_use[i] = false;
+        pcb_shell->dir_streams[i].in_use = false;
     }
 
-    /* Initialize empty environment */
     for (int i = 0; i < FLX_PROC_MAX_ENV_VARS; i++) {
         pcb_shell->env[i][0] = '\0';
     }
 
-    /* Initialize VFS and set CWD to Root */
     pcb_shell->cwd = flx_vfs_root_init();
 
-    /* Pre-populate standard environment variables! */
-    flx_proc_setenv("TERM", "vt100", 1); /* Keeps linenoise in smart mode */
+    flx_proc_setenv("TERM", "vt100", 1);
     flx_proc_setenv("PATH", "/bin", 1);
-    flx_proc_setenv("PWD", "/", 1);      /* Kernel bootstraps the working directory */
+    flx_proc_setenv("PWD", "/", 1);
 }
 
-static inline bool fd_is_valid(int fd) {
-    return (fd >= 0 && fd <= FLX_PROC_MAX_OPEN_FILES);
-}
-
-static inline bool fd_is_invalid(int fd) {
-    return !fd_is_valid(fd);
-}
-
-FlxProcPCB_t *flx_proc_pcb_get(int pid) {
-    return &kprocs[pid];
-}
-
-int flx_proc_fd_bind(int fd, FlxDev_t *dev) {
+/* =========================================================================
+ * File Descriptor Management
+ * ========================================================================= */
+int flx_proc_fd_init(int fd) {
     FlxProcPCB_t *pcb = get_current_pcb();
     if (!pcb) return -1;
 
-    if (fd_is_invalid(fd))
-        return -1;
+    pcb->fds[fd].in_use = true; /* RESERVE IT instantly! */
+    pcb->fds[fd].node = NULL;
+    pcb->fds[fd].offset = 0;
 
-    pcb->fds[fd] = dev;
+    return fd;
+}
+
+int flx_proc_fd_alloc(void) {
+    FlxProcPCB_t *pcb = get_current_pcb();
+    if (!pcb) return -1;
+
+    for (int i = 3; i < FLX_PROC_MAX_OPEN_FILES; i++) {
+        if (pcb->fds[i].in_use) continue;
+        flx_proc_fd_init(i);
+        return i;
+    }
+    return -1;
+}
+
+int flx_proc_fd_install(int fd, FlxVfsNode_t *node) {
+    FlxOpenFile_t *file = get_file_desc(fd);
+    if (!file || !node) return -1;
+
+    file->node = node;
+    file->offset = 0;
     return 0;
 }
 
+int flx_proc_fd_free(int fd) {
+    FlxOpenFile_t *file = get_file_desc(fd);
+    if (!file) return -1;
 
-FlxDev_t *flx_proc_fd_dev_get(int fd) {
-    FlxProcPCB_t *pcb = get_current_pcb();
-    if (!pcb) return NULL;
-
-    if (fd < 0 || fd >= FLX_PROC_MAX_OPEN_FILES) return NULL;
-
-    return pcb->fds[fd];
+    file->in_use = false;
+    file->node = NULL;
+    file->offset = 0;
+    return 0;
 }
+
+FlxOpenFile_t *flx_proc_fd_get(int fd) {
+    return get_file_desc(fd);
+}
+
+/* =========================================================================
+ * Process Information
+ * ========================================================================= */
 
 int flx_proc_getpid(void) {
     FlxProcPCB_t *pcb = get_current_pcb();
-    if (!pcb) return -1;
-
-    return pcb->pid;
+    return pcb ? pcb->pid : -1;
 }
 
 FlxVfsNode_t *flx_proc_cwd_node_get(void) {
     FlxProcPCB_t *pcb = get_current_pcb();
-    if (!pcb) return NULL;
-
-    return pcb->cwd;
+    return pcb ? pcb->cwd : NULL;
 }
+
 FlxVfsNode_t *flx_proc_cwd_node_set(FlxVfsNode_t *cwd_node) {
     FlxProcPCB_t *pcb = get_current_pcb();
     if (!pcb) return NULL;
-
     return pcb->cwd = cwd_node;
 }
 
@@ -110,9 +145,7 @@ const char *flx_proc_cwd_name_get(void) {
     FlxProcPCB_t *pcb = get_current_pcb();
     if (!pcb) return NULL;
 
-    if (pcb->cwd) {
-        return kprocs[FLX_PROC_PID_SHELL].cwd->name;
-    }
+    if (pcb->cwd) return pcb->cwd->name;
     return "/";
 }
 
@@ -139,118 +172,87 @@ char *flx_proc_getenv(const char *name) {
     if (!pcb || !name) return NULL;
 
     size_t name_len = strlen(name);
+    int idx = find_env_slot(pcb, name, name_len);
 
-    for (int i = 0; i < FLX_PROC_MAX_ENV_VARS; i++) {
-        /* Check if slot is active and starts with "KEY=" */
-        if (pcb->env[i][0] != '\0' &&
-            strncmp(pcb->env[i], name, name_len) == 0 &&
-            pcb->env[i][name_len] == '=') {
-
-            /* Return pointer to the start of the VALUE */
-            return &pcb->env[i][name_len + 1];
-        }
+    if (idx >= 0) {
+        return &pcb->env[idx][name_len + 1];
     }
     return NULL;
 }
 
 int flx_proc_setenv(const char *name, const char *value, int overwrite) {
     FlxProcPCB_t *pcb = get_current_pcb();
-    if (!pcb || !name || !value || strchr(name, '=')) return -1;
+    if (!pcb || !name || !value || strchr(name, '=')) return -EINVAL;
 
     size_t name_len = strlen(name);
+    int idx = find_env_slot(pcb, name, name_len);
 
-    int empty_slot = -1;
+    /* Update existing if found and overwrite is permitted */
+    if (idx >= 0) {
+        if (!overwrite) return 0;
+        snprintf(pcb->env[idx], FLX_PROC_MAX_ENV_LEN, "%s=%s", name, value);
+        return 0;
+    }
 
+    /* Otherwise, find an empty slot */
     for (int i = 0; i < FLX_PROC_MAX_ENV_VARS; i++) {
         if (pcb->env[i][0] == '\0') {
-            if (empty_slot == -1) empty_slot = i;
-            continue;
-        }
-
-        /* If variable already exists */
-        if (strncmp(pcb->env[i], name, name_len) == 0 && pcb->env[i][name_len] == '=') {
-            if (!overwrite) return 0;
             snprintf(pcb->env[i], FLX_PROC_MAX_ENV_LEN, "%s=%s", name, value);
             return 0;
         }
     }
-
-    /* Variable doesn't exist, use the first empty slot */
-    if (empty_slot != -1) {
-        snprintf(pcb->env[empty_slot], FLX_PROC_MAX_ENV_LEN, "%s=%s", name, value);
-        return 0;
-    }
-
-    /* Out of environment slots! */
-    return -1;
+    return -ENOMEM; /* Out of environment space */
 }
 
 int flx_proc_unsetenv(const char *name) {
     FlxProcPCB_t *pcb = get_current_pcb();
-    if (!pcb || !name || strchr(name, '=')) return -1;
+    if (!pcb || !name || strchr(name, '=')) return -EINVAL;
 
-    size_t name_len = strlen(name);
-
-    for (int i = 0; i < FLX_PROC_MAX_ENV_VARS; i++) {
-        if (pcb->env[i][0] != '\0' &&
-            strncmp(pcb->env[i], name, name_len) == 0 &&
-            pcb->env[i][name_len] == '=') {
-
-            /* Null out the first character to mark slot as free */
-            pcb->env[i][0] = '\0';
-            return 0;
-        }
+    int idx = find_env_slot(pcb, name, strlen(name));
+    if (idx >= 0) {
+        pcb->env[idx][0] = '\0';
     }
-    return 0; /* POSIX says return 0 if it wasn't found anyway */
+    return 0;
 }
 
-/* --- Directory Stream Management --- */
+
+/* =========================================================================
+ * Directory Stream Management
+ * ========================================================================= */
 
 int flx_proc_fd_dir_alloc(void) {
     FlxProcPCB_t *pcb = get_current_pcb();
     if (!pcb) return -1;
 
     for (int i = 0; i < FLX_PROC_MAX_DIR_STREAMS; i++) {
-        if (!pcb->dir_in_use[i]) {
-            pcb->dir_in_use[i] = true;
+        if (!pcb->dir_streams[i].in_use) {
+            pcb->dir_streams[i].in_use = true;
             return i;
         }
     }
-    return -1; /* Out of directory file descriptors! */
+    return -1;
 }
 
 FlxDir_t *flx_proc_fd_dir_get(int fd) {
-    FlxProcPCB_t *pcb = get_current_pcb();
-    if (!pcb) return NULL;
-
-    if (fd < 0 || fd >= FLX_PROC_MAX_DIR_STREAMS || !pcb->dir_in_use[fd]) {
-        return NULL;
-    }
-    return &pcb->dir_streams[fd];
+    FlxDir_t *dir = get_dir_desc(fd);
+    if (dir && dir->in_use) return dir;
+    return NULL;
 }
 
 void flx_proc_fd_dir_free(int fd) {
-    FlxProcPCB_t *pcb = get_current_pcb();
-    if (!pcb) return;
-
-    if (fd >= 0 && fd < FLX_PROC_MAX_DIR_STREAMS) {
-        pcb->dir_in_use[fd] = false;
-    }
+    FlxDir_t *dir = get_dir_desc(fd);
+    if (dir) dir->in_use = false;
 }
 
-/* --- System Calls --- */
+/* =========================================================================
+ * System Calls
+ * ========================================================================= */
 
 int flx_proc_exec(const char *path, int argc, char **argv) {
-    /* For now, this is a thin wrapper that safely crosses into the VFS.
-     * In the future, this is where memory cloning (fork) or tasking (yield) will live! */
-
     FlxVfsNode_t *cmd_node = flx_vfs_path_resolve(flx_proc_cwd_node_get(), path);
 
-    /* Ensure the node exists and is actually a regular file/executable */
     if (!cmd_node || !S_ISREG(cmd_node->mode)) {
         return -1;
     }
-
-    /* Hand the file's raw data payload over to the Binary Format Loader! */
-    return flx_load_binary(cmd_node->data, argc, argv);
+    return flx_binfmt_load(cmd_node->data, argc, argv);
 }

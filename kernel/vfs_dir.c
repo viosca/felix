@@ -35,12 +35,33 @@ struct dirent *flx_vfs_readdir(int fd) {
     FlxDir_t *dir = flx_proc_fd_dir_get(fd);
     if (!dir || !dir->node) return NULL;
 
+    /* Virtual Offset 0: The Current Directory "." */
+    if (dir->current_index == 0) {
+        dir->entry.d_ino = 1;
+        strncpy(dir->entry.d_name, ".", sizeof(dir->entry.d_name) - 1);
+        dir->entry.d_name[sizeof(dir->entry.d_name) - 1] = '\0';
+        dir->current_index++;
+        return &dir->entry;
+    }
+
+    /* Virtual Offset 1: The Parent Directory ".." */
+    if (dir->current_index == 1) {
+        dir->entry.d_ino = 1;
+        strncpy(dir->entry.d_name, "..", sizeof(dir->entry.d_name) - 1);
+        dir->entry.d_name[sizeof(dir->entry.d_name) - 1] = '\0';
+        dir->current_index++;
+        return &dir->entry;
+    }
+
+    /* Virtual Offset 2+: The Physical Children */
+    int physical_index = dir->current_index - 2;
     FlxVfsNode_t **children = dir->node->dir.children;
-    if (!children || !children[dir->current_index]) {
+
+    if (!children || !children[physical_index]) {
         return NULL; /* Reached the end of the directory array */
     }
 
-    FlxVfsNode_t *child = children[dir->current_index];
+    FlxVfsNode_t *child = children[physical_index];
 
     dir->entry.d_ino = 1; /* Dummy inode number for now */
 

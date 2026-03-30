@@ -1,54 +1,80 @@
-/* @file flx_fs_bin.c
- */
 #include <sys/stat.h>
 #include <stddef.h>
 #include "kernel/vfs.h"
+#include "kernel/binfmt.h"
 #include "fs/bin/flx_fs_bin.h"
 #include "fs/bin/flx_fs_bin_cmds.h"
 #include "fs/bin/flx_fs_bin_cmd_ls.h"
+#include "fs/bin/flx_fs_bin_cmd_hexdump.h"
+#include "fs/bin/flx_fs_bin_cmds.h"
 
-#define FLX_MAX_BIN_CHILDREN 64
+/* Forward-declare the parent directory so the children can reference it */
+static FlxVfsNode_t node_bin;
 
-static FlxVfsNode_t *bin_children[FLX_MAX_BIN_CHILDREN + 1];
-static int bin_node_count = 0;
+/* Declare the external linker bounds for each command */
+FLX_BINFMT_EXTERN_BOUNDS(flx_fs_bin_cmd_clear);
+FLX_BINFMT_EXTERN_BOUNDS(flx_fs_bin_cmd_date);
+FLX_BINFMT_EXTERN_BOUNDS(flx_fs_bin_cmd_echo);
+FLX_BINFMT_EXTERN_BOUNDS(flx_fs_bin_cmd_help);
+FLX_BINFMT_EXTERN_BOUNDS(flx_fs_bin_cmd_hexdump);
+FLX_BINFMT_EXTERN_BOUNDS(flx_fs_bin_cmd_ls);
+FLX_BINFMT_EXTERN_BOUNDS(flx_fs_bin_cmd_pwd);
+FLX_BINFMT_EXTERN_BOUNDS(flx_fs_bin_cmd_which);
+FLX_BINFMT_EXTERN_BOUNDS(flx_fs_bin_cmd_tree);
 
-static FlxVfsNode_t node_bin = {
-    .name = "bin",
-    .mode = S_IFDIR | 0755,
-    .size = 0,
-    .dir = { .children = bin_children }
+/* Declare the unique Payloads (Inodes) using the Linker Bounds macro */
+FLX_BINFMT_DECLARE_CMD_PAYLOAD(payload_clear, flx_fs_bin_cmd_clear, flx_fs_bin_cmd_clear);
+FLX_BINFMT_DECLARE_CMD_PAYLOAD(payload_date,  flx_fs_bin_cmd_date,  flx_fs_bin_cmd_date);
+FLX_BINFMT_DECLARE_CMD_PAYLOAD(payload_echo,  flx_fs_bin_cmd_echo,  flx_fs_bin_cmd_echo);
+FLX_BINFMT_DECLARE_CMD_PAYLOAD(payload_help,  flx_fs_bin_cmd_help,  flx_fs_bin_cmd_help);
+FLX_BINFMT_DECLARE_CMD_PAYLOAD(payload_hexdump,  flx_fs_bin_cmd_hexdump,  flx_fs_bin_cmd_hexdump);
+FLX_BINFMT_DECLARE_CMD_PAYLOAD(payload_ls,    flx_fs_bin_cmd_ls,    flx_fs_bin_cmd_ls);
+FLX_BINFMT_DECLARE_CMD_PAYLOAD(payload_pwd,   flx_fs_bin_cmd_pwd,   flx_fs_bin_cmd_pwd);
+FLX_BINFMT_DECLARE_CMD_PAYLOAD(payload_which, flx_fs_bin_cmd_which, flx_fs_bin_cmd_which);
+FLX_BINFMT_DECLARE_CMD_PAYLOAD(payload_tree,  flx_fs_bin_cmd_tree,  flx_fs_bin_cmd_tree);
+
+/* Declare the VFS Nodes (Dentries) */
+/* Notice how ls, ll, and dir all share payload_ls! These are true hard links. */
+
+FLX_VFS_DECLARE_NODE(node_clear,    "clear",   &node_bin, &payload_clear);
+FLX_VFS_DECLARE_NODE(node_dir,      "dir",     &node_bin, &payload_ls); // ALIAS
+FLX_VFS_DECLARE_NODE(node_date,     "date",    &node_bin, &payload_date);
+FLX_VFS_DECLARE_NODE(node_echo,     "echo",    &node_bin, &payload_echo);
+FLX_VFS_DECLARE_NODE(node_help,     "help",    &node_bin, &payload_help);
+FLX_VFS_DECLARE_NODE(node_hexdump,  "hexdump", &node_bin, &payload_hexdump);
+FLX_VFS_DECLARE_NODE(node_ls,       "ls",      &node_bin, &payload_ls);
+FLX_VFS_DECLARE_NODE(node_ll,       "ll",      &node_bin, &payload_ls); // ALIAS
+FLX_VFS_DECLARE_NODE(node_pwd,      "pwd",     &node_bin, &payload_pwd);
+FLX_VFS_DECLARE_NODE(node_which,    "which",   &node_bin, &payload_which);
+FLX_VFS_DECLARE_NODE(node_tree,     "tree",    &node_bin, &payload_tree);
+
+/* 6. Link them into the static children array */
+static FlxVfsNode_t *bin_children[] = {
+    &node_clear,
+    &node_date,
+    &node_dir,
+    &node_echo,
+    &node_help,
+    &node_hexdump,
+    &node_ls,
+    &node_ll,
+    &node_pwd,
+    &node_which,
+    &node_tree,
+    NULL /* Must be null-terminated */
 };
 
-int flx_fs_bin_register(const char *name, int (*main_func)(int argc, char **argv)) {
-    if (bin_node_count >= FLX_MAX_BIN_CHILDREN) return -1;
+/* 7. Define the actual /bin directory node */
+static FlxVfsNode_t node_bin = {
+    .name = "bin",
+    .flags = 0,
+    .parent = NULL, /* Root will assign this during mount */
+    .mode = S_IFDIR | 0755,
+    .dir = { .children = bin_children },
+    .ops = NULL
+};
 
-    /* Ask the VFS core to generate the executable payload */
-    FlxVfsNode_t *node = flx_vfs_create_exec_node(name, main_func);
-    if (!node) return -1;
-
-    node->parent = &node_bin;
-
-    /* Link it into the directory */
-    bin_children[bin_node_count++] = node;
-    bin_children[bin_node_count] = NULL;
-
-    return 0;
-}
-
+/* 8. Initialization is now a single, O(1) step! */
 int flx_fs_bin_init(void) {
-    bin_children[0] = NULL;
-    bin_node_count = 0;
-    int status = flx_vfs_mount(&node_bin, "/bin");
-    if (status)
-        return status;
-
-    status |= flx_fs_bin_register("dir", flx_fs_bin_cmd_ls);
-    status |= flx_fs_bin_register("echo", flx_fs_bin_cmd_echo);
-    status |= flx_fs_bin_register("help", flx_fs_bin_cmd_help);
-    status |= flx_fs_bin_register("ll", flx_fs_bin_cmd_ls);
-    status |= flx_fs_bin_register("ls", flx_fs_bin_cmd_ls);
-    status |= flx_fs_bin_register("pwd", flx_fs_bin_cmd_pwd);
-    status |= flx_fs_bin_register("which", flx_fs_bin_cmd_which);
-    status |= flx_fs_bin_register("tree", flx_fs_bin_cmd_tree);
-    return status;
+    return flx_vfs_mount(&node_bin, "/bin");
 }

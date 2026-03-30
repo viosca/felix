@@ -16,4 +16,11 @@ void felix_init(void);
  * @return 0 on success, negative on error.
  */
 int felix_register_uart(int dev_id, void *hw_instance, const FlxUartOps_t *ops);
+
+/**
+ * @brief Binds the standard I/O file descriptors to a specific VFS node path.
+ * @param dev_path The path to the console device.
+ * @return 0 on success, negative on error.
+ */
+int felix_console_bind(const char *dev_path);
 #endif /* FELIX_OS_H */

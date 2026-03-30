@@ -8,17 +8,36 @@
 
 #include <sys/stat.h> /* For POSIX mode_t and struct stat */
 #include <dirent.h>   /* For POSIX directory streams */
+#include <stdint.h>
+#include <sys/types.h> /* For ssize_t and off_t */
 #include "kernel/devices.h"
 #include "kernel/binfmt.h"
 
 typedef struct FlxVfsNode FlxVfsNode_t;
 
+/**
+ * @brief The VFS Operations Table
+ * Every filesystem type (devfs, binfs, etc.) defines ONE of these as a const global.
+ */
+typedef struct {
+    int (*getattr)(FlxVfsNode_t *node, struct stat *st);
+    int (*open)(FlxVfsNode_t *node, int flags);
+    ssize_t (*read)(FlxVfsNode_t *node, void *buf, size_t count, off_t offset);
+    ssize_t (*write)(FlxVfsNode_t *node, const void *buf, size_t count, off_t offset);
+    int (*close)(FlxVfsNode_t *node);
+} FlxVfsOps_t;
+
+/* VFS Node Flags */
+#define FLX_VFS_FLAG_ALLOCATED_NAME (1 << 0) /* If set, the VFS must free() the name upon node destruction */
+#define FLX_VFS_FLAG_ALLOCATED_NODE (1 << 1) /* If set, the VFS must free() the node structure itself */
+
 struct FlxVfsNode {
-    const char *name;
+    const char *name;     /* Pointer to string (either in .rodata or heap) */
+    uint8_t flags;        /* Node lifecycle flags */
+
     FlxVfsNode_t *parent;
 
-    mode_t mode; /* POSIX file mode/permissions */
-    size_t size; /* File size in bytes */
+    mode_t mode; /* POSIX file mode/permissions (S_IFREG, S_IFDIR, etc.) */
 
     /* VFS Tree / Payload Union */
     union {
@@ -28,6 +47,9 @@ struct FlxVfsNode {
         } dir;
         int dev_id; /* S_IFCHR: Device ID */
     };
+
+    /* Pointer to the filesystem operations table */
+    const FlxVfsOps_t *ops;
 };
 
 /**
@@ -35,18 +57,36 @@ struct FlxVfsNode {
  */
 #define FLX_VFS_DECLARE_NODE(node_var, node_name_str, parent_ptr, payload_ptr) \
     static FlxVfsNode_t node_var = { \
-        .name = (node_name_str), \
+        .name = node_name_str, \
+        .flags = 0, \
         .parent = (parent_ptr), \
         .mode = S_IFREG | 0555, \
-        .size = sizeof(FlxLinkedExec_t), \
-        .data = (void*)(payload_ptr) \
+        .data = (void*)(payload_ptr), \
+        .ops = NULL \
     }
 
 /**
- * @brief Combined macro: Declares both the payload and the VFS node automatically.
+ * @brief Declares a STANDARD command/file using a hardcoded, explicit size.
+ * @param var_name The base name for the generated variables.
+ * @param cmd_name The string name of the command (e.g., "ls").
+ * @param parent_ptr Pointer to the parent directory node.
+ * @param exec_func The main entry point function.
+ * @param payload_size The exact size of the payload in bytes.
  */
-#define FLX_VFS_DECLARE_CMD(var_name, cmd_name, parent_ptr, exec_func, comp_func, help_text) \
-    FLX_BINFMT_DECLARE_PAYLOAD(__payload_##var_name, exec_func, comp_func, help_text); \
+#define FLX_VFS_DECLARE_CMD(var_name, cmd_name, parent_ptr, exec_func, payload_size) \
+    FLX_BINFMT_DECLARE_PAYLOAD(__payload_##var_name, exec_func, payload_size); \
+    FLX_VFS_DECLARE_NODE(var_name, cmd_name, parent_ptr, &__payload_##var_name)
+
+/**
+ * @brief Declares a LINKED command using automatic linker bounds for dynamic sizing!
+ * @param var_name The base name for the generated variables.
+ * @param cmd_name The string name of the command (e.g., "ls").
+ * @param parent_ptr Pointer to the parent directory node.
+ * @param exec_func The main entry point function (also used as the custom section name).
+ */
+#define FLX_VFS_DECLARE_LINKED_CMD(var_name, cmd_name, parent_ptr, exec_func) \
+    FLX_BINFMT_EXTERN_BOUNDS(exec_func); \
+    FLX_BINFMT_DECLARE_CMD_PAYLOAD(__payload_##var_name, exec_func, exec_func); \
     FLX_VFS_DECLARE_NODE(var_name, cmd_name, parent_ptr, &__payload_##var_name)
 
 /* API */
@@ -58,17 +98,15 @@ FlxVfsNode_t *flx_vfs_root_get(void);
 FlxVfsNode_t *flx_vfs_path_resolve(FlxVfsNode_t *cwd_node, const char *path);
 
 /* POSIX API */
-
-/**
- * @brief Performs a POSIX stat() on a node to retrieve size, permissions, and device IDs.
- */
 int flx_vfs_stat(FlxVfsNode_t *node, struct stat *st);
+ssize_t flx_vfs_read(FlxVfsNode_t *node, void *buf, size_t count, off_t offset);
 
 int flx_vfs_chdir(const char *path);
 
 /* --- Directory Stream API --- */
 typedef struct {
     FlxVfsNode_t *node;
+    bool in_use;
     int current_index;
     struct dirent entry;
 } FlxDir_t;
@@ -86,10 +124,11 @@ char *flx_vfs_getcwd(char *buf, size_t size);
  * @brief Allocates an executable node and binary payload from the global kernel pool.
  * @param name The filename of the command (e.g., "ls")
  * @param main_func Function pointer to the command's entry point
+ * @param explicit_size Explicit size (for text/configs, 0 if using linker bounds)
+ * @param start_ptr Pointer to the linker section start (NULL if using explicit size)
+ * @param end_ptr Pointer to the linker section end (NULL if using explicit size)
  * @return Pointer to the populated VFS Node, or NULL if the pool is full.
  */
-FlxVfsNode_t* flx_vfs_create_exec_node(const char *name, int (*main_func)(int argc, char **argv));
-
-
+FlxVfsNode_t* flx_vfs_create_exec_node(const char *name, int (*main_func)(int argc, char **argv), size_t explicit_size, const void *start_ptr, const void *end_ptr);
 
 #endif /* FELIX_KERNEL_VFS_H */

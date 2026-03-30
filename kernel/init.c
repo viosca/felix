@@ -23,23 +23,24 @@ int felix_register_uart(int dev_id, void *hw_instance, const FlxUartOps_t *ops) 
     int ret;
 
     /* Route the opaque hardware pointer safely down to the HAL */
-    /* The OS blindly passes whatever ops table the board gave it down to the driver */
-    ret = serial_init(dev_id, hw_instance, ops);
-    if (ret != 0) {
-        return ret;
-    }
+    return serial_init(dev_id, hw_instance, ops);
+}
 
-    FlxDev_t *console_dev = flx_dev_get(0);
-    if (!console_dev)
-        return -1;
+/**
+ * @brief Binds the standard I/O file descriptors to a specific VFS node path.
+ */
+int felix_console_bind(const char *dev_path) {
+    FlxVfsNode_t *console_node = flx_vfs_path_resolve(flx_vfs_root_get(), dev_path);
+    if (!console_node) return -1;
 
-    flx_proc_fd_bind(STDIN_FILENO, console_dev);
-    flx_proc_fd_bind(STDOUT_FILENO, console_dev);
-    flx_proc_fd_bind(STDERR_FILENO, console_dev);
+    /* Bind the VFS Node to standard I/O */
 
-    /* =========================================================
-     * ENTER USER SPACE
-     * ========================================================= */
+    flx_proc_fd_init(STDIN_FILENO);
+    flx_proc_fd_init(STDOUT_FILENO);
+    flx_proc_fd_init(STDERR_FILENO);
 
+    flx_proc_fd_install(STDIN_FILENO, console_node);
+    flx_proc_fd_install(STDOUT_FILENO, console_node);
+    flx_proc_fd_install(STDERR_FILENO, console_node);
     return 0;
 }

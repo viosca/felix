@@ -1,6 +1,9 @@
+/** @file posix/unistd.c
+ */
 #include <unistd.h>
 #include <stddef.h>
 #include <errno.h>
+#include <sys/stat.h>
 #include "kernel/vfs.h"
 #include "kernel/process.h"
 #include "kernel/syscalls.h"
@@ -10,87 +13,86 @@
  * ========================================================================= */
 
 int close(int fd) {
-    if (sys_close(fd) == -1) {
-        errno = EBADF;
+    int ret = sys_close(fd);
+    if (ret < 0) {
+        errno = -ret;
         return -1;
     }
     return 0;
 }
 
 ssize_t read(int fd, void *buf, size_t count) {
-    int bytes_read = sys_read(fd, buf, count);
-    if (bytes_read == -1) {
-        errno = EBADF;
+    ssize_t ret = sys_read(fd, buf, count);
+    if (ret < 0) {
+        errno = -ret;
         return -1;
     }
-    return bytes_read;
+    return ret;
 }
 
 ssize_t write(int fd, const void *buf, size_t count) {
-    int bytes_written = sys_write(fd, buf, count);
-    if (bytes_written == -1) {
-        errno = EBADF;
+    ssize_t ret = sys_write(fd, buf, count);
+    if (ret < 0) {
+        errno = -ret;
         return -1;
     }
-    return bytes_written;
+    return ret;
 }
 
 int isatty(int fd) {
-    struct stat st;
-
-    /* If fstat succeeds and the file is a Character Device, it's a TTY! */
-    if (fstat(fd, &st) == 0) {
-        if (S_ISCHR(st.st_mode)) {
-            return 1;
-        }
+    int ret = sys_isatty(fd);
+    if (ret == 0) {
+        errno = ENOTTY;
     }
-
-    errno = ENOTTY;
-    return 0;
+    return ret;
 }
 
-/**
- * @brief Changes the current working directory of the calling process.
- * @param[in] path The directory path to switch to.
- * @return 0 on success, -1 on error.
- */
 int chdir(const char *path) {
-    if (!path) return -1;
-    return flx_vfs_chdir(path);
-}
-
-/**
- * @brief Gets the absolute pathname of the current working directory.
- * @param[out] buf The buffer to store the path.
- * @param[in] size The size of the buffer.
- * @return A pointer to the buffer on success, or NULL on error.
- */
-char *getcwd(char *buf, size_t size) {
-    if (!buf || size == 0) return NULL;
-    return flx_vfs_getcwd(buf, size);
-}
-#if 0
-/**
- * @brief Determines if a file descriptor refers to a terminal (TTY).
- * @param fd The file descriptor to test.
- * @return 1 if fd is an open file descriptor referring to a terminal;
- * otherwise 0 is returned, and errno is set to indicate the error.
- */
-int isatty(int fd) {
-    FlxDev_t *dev = flx_proc_dev_get(FLX_PROC_PID_SHELL, fd);
-
-    if (!dev) {
-        errno = EBADF;
-        return 0;
+    if (!path) {
+        errno = EFAULT;
+        return -1;
     }
 
-    /* Currently, UART devices are our only true terminals */
-    if (dev->type == FlxDevType_UART) {
-        return 1;
+    int ret = sys_chdir(path);
+    if (ret < 0) {
+        errno = -ret;
+        return -1;
     }
-
-    /* Valid file descriptor, but not a terminal/typewriter */
-    errno = ENOTTY;
     return 0;
 }
-#endif
+
+char *getcwd(char *buf, size_t size) {
+    if (!buf || size == 0) {
+        errno = EINVAL;
+        return NULL;
+    }
+
+    char *ret = sys_getcwd(buf, size);
+    if (!ret) {
+        /* If sys_getcwd fails, it likely implies ERANGE (buffer too small)
+         * or ENOENT. The sys_ implementation should ideally return the error code
+         * somehow, but for pointers, we default to ERANGE if it fails here. */
+        errno = ERANGE;
+        return NULL;
+    }
+    return ret;
+}
+
+pid_t getpid(void) {
+    return sys_getpid();
+}
+
+int usleep(useconds_t usec) {
+    sys_usleep(usec);
+    return 0;
+}
+
+/**
+ * @brief Suspends execution of the calling thread for the specified number of seconds.
+ * @param seconds The number of seconds to sleep.
+ * @return 0 on success.
+ */
+unsigned int sleep(unsigned int seconds) {
+    sys_usleep((uint64_t)seconds * 1000000ULL);
+    return 0;
+}

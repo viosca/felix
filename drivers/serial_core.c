@@ -21,12 +21,12 @@ static void uart_hw_putc(void *ctx, char c) {
 
     if (!ops) return;
 
-    /* 1. APPLY BACKPRESSURE (Safe from spurious wakeups!) */
+    /* APPLY BACKPRESSURE (Safe from spurious wakeups!) */
     while (ring_buffer_is_full(&dev->tx_buffer)) {
-        flx_cpu_wait_for_interrupt();
+        arch_cpu_idle();
     }
 
-    /* 2. CRITICAL SECTION START */
+    /* CRITICAL SECTION START */
     if (ops->irq_mask) ops->irq_mask(hw, true);
 
     ring_buffer_write(&dev->tx_buffer, (uint8_t)c);
@@ -36,7 +36,7 @@ static void uart_hw_putc(void *ctx, char c) {
         if (ops->tx_kickstart) ops->tx_kickstart(hw, &g_tx_active[id]);
     }
 
-    /* 3. CRITICAL SECTION END */
+    /* CRITICAL SECTION END */
     if (ops->irq_mask) ops->irq_mask(hw, false);
 }
 

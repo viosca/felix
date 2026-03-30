@@ -21,26 +21,39 @@
 #define FLX_PROC_MAX_ENV_VARS 16
 #define FLX_PROC_MAX_ENV_LEN  128
 
+/* Represents an open file tied to a process */
+typedef struct {
+    bool in_use;        /* true if fd is in use or in process of being allocated. */
+    FlxVfsNode_t *node; /* NULL if this FD is closed */
+    off_t offset;       /* Current read/write head */
+} FlxOpenFile_t;
+
 typedef struct {
     int pid;
-    FlxDev_t *fds[FLX_PROC_MAX_OPEN_FILES];
+    FlxOpenFile_t fds[FLX_PROC_MAX_OPEN_FILES];
 
-    FlxDir_t dir_streams[FLX_PROC_MAX_DIR_STREAMS]; // <-- The new array!
-    bool dir_in_use[FLX_PROC_MAX_DIR_STREAMS];     // <-- Tracks which slots are free
+    FlxDir_t dir_streams[FLX_PROC_MAX_DIR_STREAMS];
 
     FlxVfsNode_t *cwd; /**< Current Working Directory */
 
     /* Process Environment Block: Stored as "KEY=VALUE" strings */
     char env[FLX_PROC_MAX_ENV_VARS][FLX_PROC_MAX_ENV_LEN];
 
+    /* Opaque pointer for C-Library State (Thread Local Storage).
+     * The kernel blindly holds this; the stub layer manages its contents! */
+    void *clib_context;
+
 } FlxProcPCB_t;
 
-//extern FlxPCB_t *g_current_process;
-
 void flx_proc_init_first(void);
-int flx_proc_fd_bind(int fd, FlxDev_t *dev);
 
-FlxDev_t *flx_proc_fd_dev_get(int fd);
+/* File Descriptor Lifecycle API */
+int flx_proc_fd_init(int fd);
+int flx_proc_fd_alloc(void);
+int flx_proc_fd_install(int fd, FlxVfsNode_t *node);
+int flx_proc_fd_free(int fd);
+
+FlxOpenFile_t *flx_proc_fd_get(int fd);
 
 int flx_proc_getpid(void);
 
@@ -62,6 +75,5 @@ void flx_proc_fd_dir_free(int fd);
 
 /* --- System Calls --- */
 int flx_proc_exec(const char *path, int argc, char **argv);
-
 
 #endif /* FELIX_KERNEL_PROCESS_H */

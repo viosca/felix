@@ -19,7 +19,6 @@ static FlxVfsNode_t node_etc = {
     .name = "etc",
     .parent = NULL,
     .mode = S_IFDIR | 0755,
-    .size = 0,
     .dir = { .children = etc_children }
 };
 

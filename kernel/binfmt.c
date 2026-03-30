@@ -3,7 +3,7 @@
 #include <stddef.h>
 #include "kernel/binfmt.h"
 
-int flx_load_binary(void *file_data, int argc, char **argv) {
+int flx_binfmt_load(void *file_data, int argc, char **argv) {
     if (!file_data) return -1;
 
     uint8_t *bytes = (uint8_t *)file_data;

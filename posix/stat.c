@@ -13,9 +13,9 @@ int stat(const char *pathname, struct stat *statbuf) {
         return -1;
     }
 
-    /* Hit the OS visibility wall! */
-    if (sys_stat(pathname, statbuf) == -1) {
-        errno = ENOENT;
+    int ret = sys_stat(pathname, statbuf);
+    if (ret < 0) {
+        errno = -ret;
         return -1;
     }
 
@@ -28,9 +28,9 @@ int fstat(int fd, struct stat *statbuf) {
         return -1;
     }
 
-    /* Hit the OS visibility wall! */
-    if (sys_fstat(fd, statbuf) == -1) {
-        errno = EBADF;
+    int ret = sys_fstat(fd, statbuf);
+    if (ret < 0) {
+        errno = -ret;
         return -1;
     }
 

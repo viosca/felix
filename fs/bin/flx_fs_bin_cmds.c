@@ -5,9 +5,88 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <limits.h>
+#include <time.h>
+#include <sys/time.h>
 #include <fs/bin/flx_fs_bin_cmds.h>
 #include "kernel/process.h"
+#include "kernel/binfmt.h"
 
+FLX_BINFMT_CMD_SECTION(flx_fs_bin_cmd_clear)
+int flx_fs_bin_cmd_clear(int argc, char **argv) {
+    printf("\x1b[2J\x1b[H");
+    return 0;
+}
+
+FLX_BINFMT_CMD_SECTION(flx_fs_bin_cmd_date)
+int flx_fs_bin_cmd_date(int argc, char **argv) {
+    struct timeval tv;
+
+    /* GET TIME: 'date' */
+    if (argc == 1) {
+        if (gettimeofday(&tv, NULL) == 0) {
+            time_t now = tv.tv_sec;
+            struct tm *tm_info = localtime(&now);
+            if (tm_info) {
+                char buffer[64];
+                strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", tm_info);
+                printf("%s\n", buffer);
+                return 0;
+            }
+        }
+        fprintf(stderr, "date: failed to get time\n");
+        return 1;
+    }
+
+    /* SET TIME: 'date -s "YYYY-MM-DD HH:MM:SS"' */
+    if (argc >= 3 && strcmp(argv[1], "-s") == 0) {
+        /* Combine remaining arguments in case the user didn't quote the time */
+        char time_str[64] = {0};
+        int pos = 0;
+        for (int i = 2; i < argc && pos < (int)sizeof(time_str) - 2; i++) {
+            pos += snprintf(&time_str[pos], sizeof(time_str) - pos, "%s%s",
+                            argv[i], (i < argc - 1) ? " " : "");
+        }
+
+        struct tm tm_info = {0};
+        int year, month, day, hour, min, sec;
+
+        /* Parse the string directly */
+        if (sscanf(time_str, "%d-%d-%d %d:%d:%d", &year, &month, &day, &hour, &min, &sec) == 6) {
+            tm_info.tm_year = year - 1900;
+            tm_info.tm_mon = month - 1;
+            tm_info.tm_mday = day;
+            tm_info.tm_hour = hour;
+            tm_info.tm_min = min;
+            tm_info.tm_sec = sec;
+
+            /* Convert struct tm back into epoch seconds */
+            time_t new_time = mktime(&tm_info);
+
+            if (new_time != (time_t)-1) {
+                tv.tv_sec = new_time;
+                tv.tv_usec = 0;
+
+                if (settimeofday(&tv, NULL) == 0) {
+                    /* Print the new time to confirm it worked */
+                    printf("Time set to: %s\n", time_str);
+                    return 0;
+                } else {
+                    fprintf(stderr, "date: settimeofday failed\n");
+                }
+            }
+        }
+        fprintf(stderr, "date: invalid format. Use 'YYYY-MM-DD HH:MM:SS'\n");
+        return 1;
+    }
+
+    /* Print Help */
+    printf("Usage:\n");
+    printf("  date                           (Show current date and time)\n");
+    printf("  date -s \"YYYY-MM-DD HH:MM:SS\"  (Set the system clock)\n");
+    return 1;
+}
+
+FLX_BINFMT_CMD_SECTION(flx_fs_bin_cmd_echo)
 int flx_fs_bin_cmd_echo(int argc, char **argv) {
     for (int i = 1; i < argc; i++) {
         printf("%s%s", argv[i], i == argc - 1 ? "" : " ");
@@ -16,20 +95,7 @@ int flx_fs_bin_cmd_echo(int argc, char **argv) {
     return 0;
 }
 
-int flx_fs_bin_cmd_pwd(int argc, char **argv) {
-    char buf[256];
-    if (getcwd(buf, sizeof(buf))) {
-        printf("%s\n", buf);
-        return 0;
-    }
-    return 1;
-}
-
-int flx_fs_bin_cmd_clear(int argc, char **argv) {
-    printf("\x1b[2J\x1b[H");
-    return 0;
-}
-
+FLX_BINFMT_CMD_SECTION(flx_fs_bin_cmd_help)
 int flx_fs_bin_cmd_help(int argc, char **argv) {
     printf("Felix OS Shell Builtins:\n");
     printf("  cd [dir]       Change working directory\n");
@@ -48,6 +114,17 @@ int flx_fs_bin_cmd_help(int argc, char **argv) {
     return 0;
 }
 
+FLX_BINFMT_CMD_SECTION(flx_fs_bin_cmd_pwd)
+int flx_fs_bin_cmd_pwd(int argc, char **argv) {
+    char buf[256];
+    if (getcwd(buf, sizeof(buf))) {
+        printf("%s\n", buf);
+        return 0;
+    }
+    return 1;
+}
+
+FLX_BINFMT_CMD_SECTION(flx_fs_bin_cmd_which)
 int flx_fs_bin_cmd_which(int argc, char **argv) {
     if (argc < 2) {
         return 1;
