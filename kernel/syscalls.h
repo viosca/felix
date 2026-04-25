@@ -32,6 +32,21 @@ int sys_open(const char *pathname, int flags, int mode);
 int sys_close(int fd);
 int sys_read(int fd, void *buf, size_t count);
 int sys_write(int fd, const void *buf, size_t count);
+int sys_truncate(const char *path, off_t length);
+int sys_ftruncate(int fd, off_t length);
+
+/* POSIX Directory and Link Syscalls */
+int sys_mkdir(const char *path, mode_t mode);
+int sys_rmdir(const char *path);
+int sys_unlink(const char *path);
+int sys_link(const char *oldpath, const char *newpath);
+int sys_rename(const char *oldpath, const char *newpath);
+
+int sys_mount(const char *source, const char *target,
+              const char *filesystemtype, unsigned long mountflags,
+              const void *data);
+int sys_umount(const char *target);
+
 int sys_ioctl(int fd, int request, void *arg);
 int sys_isatty(int fd);
 off_t sys_lseek(int fd, off_t offset, int whence);

@@ -91,16 +91,13 @@ int _ioctl_r(struct _reent *r, int file, int request, void *argp) {
 }
 
 int _link_r(struct _reent *r, const char *oldpath, const char *newpath) {
-    (void)oldpath;
-    (void)newpath;
-    if (r) r->_errno = ENOSYS;
-    return -1;
+    (void)r;
+    return link(oldpath, newpath);
 }
 
 int _unlink_r(struct _reent *r, const char *pathname) {
-    (void)pathname;
-    if (r) r->_errno = ENOSYS;
-    return -1;
+    (void)r;
+    return unlink(pathname);
 }
 
 int _rename_r(struct _reent *r, const char *oldpath, const char *newpath) {

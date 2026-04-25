@@ -1,3 +1,6 @@
+/**#include <errno.h>
+ * @file felix/posix/ioctl.h
+ */
 #include <errno.h>
 #include <stdarg.h>
 #include "kernel/syscalls.h"
@@ -15,10 +18,11 @@ int ioctl(int fd, int request, ...) {
     va_end(args);
 
     /* Hit the OS visibility wall! */
-    if (sys_ioctl(fd, request, argp) < 0) {
-        errno = ENOTTY;
+    int ret = sys_ioctl(fd, request, argp);
+    if (ret < 0) {
+        errno = -ret; /* Pass the exact kernel error directly to user-space! */
         return -1;
     }
 
-    return 0;
+    return ret;
 }

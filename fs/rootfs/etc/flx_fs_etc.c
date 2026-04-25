@@ -1,7 +1,8 @@
 #include <stddef.h>
 #include <sys/stat.h>
 #include "kernel/vfs.h"
-#include "fs/etc/flx_fs_etc.h"
+#include "fs/rootfs/flx_fs_root.h"
+#include "fs/rootfs/etc/flx_fs_etc.h"
 
 /* Forward declaration of the directory node so children can reference it as parent */
 static FlxVfsNode_t node_etc;
@@ -27,5 +28,5 @@ int flx_fs_etc_init(void) {
      * The entire tree structure is resolved by the linker. */
 
     /* Mount to the root switch */
-    return flx_vfs_mount(&node_etc, "/etc");
+    return flx_fs_root_add_dir(&node_etc);
 }

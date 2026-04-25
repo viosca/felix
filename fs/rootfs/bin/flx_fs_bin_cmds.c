@@ -7,7 +7,7 @@
 #include <limits.h>
 #include <time.h>
 #include <sys/time.h>
-#include <fs/bin/flx_fs_bin_cmds.h>
+#include "fs/rootfs/bin/flx_fs_bin_cmds.h"
 #include "kernel/process.h"
 #include "kernel/binfmt.h"
 

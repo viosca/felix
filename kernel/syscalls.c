@@ -8,38 +8,37 @@
 #include <string.h>
 #include <stddef.h>
 #include <sys/stat.h>
+#include <fcntl.h>
 #include <stdint.h>
 #include <errno.h>
-#include <stdio.h>  /* ANSI C guarantees SEEK_SET, SEEK_CUR, and SEEK_END are here! */
+#include <stdio.h>  
 #include <unistd.h>
 #include <cpu.h>
 #include <mm.h>
 
 int sys_stat(const char *pathname, struct stat *statbuf) {
-    FlxVfsNode_t *node = flx_vfs_path_resolve(flx_proc_cwd_node_get(), pathname);
+    const char *remainder = NULL;
+    FlxVfsNode_t *node = flx_vfs_path_resolve(flx_proc_cwd_node_get(), pathname, &remainder);
     if (!node) return -ENOENT;
+
+    /* If it's a dynamic filesystem (like FatFs), pass the remainder path to the driver! */
+    if (node->ops && node->ops->getattr) {
+        return node->ops->getattr(node, remainder, statbuf);
+    } else if (remainder && *remainder != '\0') {
+        return -ENOENT;
+    }
 
     if (flx_vfs_stat(node, statbuf) < 0) return -EIO;
     return 0;
 }
 
 int sys_fstat(int fd, struct stat *statbuf) {
-    /* Check if it is an open VFS Node */
+    /* We just check the one FD table */
     FlxOpenFile_t *file = flx_proc_fd_get(fd);
-    if (file && file->in_use && file->node) {
-        /* Let flx_vfs_stat perfectly handle character devices, files, etc. */
-        if (flx_vfs_stat(file->node, statbuf) < 0) return -EIO;
-        return 0;
-    }
-
-    /* Check if it is an open directory stream */
-    FlxDir_t *dir = flx_proc_fd_dir_get(fd);
-    if (dir && dir->node) {
-        if (flx_vfs_stat(dir->node, statbuf) < 0) return -EIO;
-        return 0;
-    }
-
-    return -EBADF; /* Bad file descriptor */
+    if (!file || !file->in_use || !file->node) return -EBADF;
+    
+    if (flx_vfs_stat(file->node, statbuf) < 0) return -EIO;
+    return 0;
 }
 
 int sys_exec(const char *path, int argc, char **argv) {
@@ -81,10 +80,27 @@ int sys_unsetenv(const char *name) {
  * ========================================================================= */
 
 int sys_chdir(const char *path) {
-    FlxVfsNode_t *node = flx_vfs_path_resolve(flx_proc_cwd_node_get(), path);
+    const char *remainder = NULL;
+    FlxVfsNode_t *node = flx_vfs_path_resolve(flx_proc_cwd_node_get(), path, &remainder);
     if (!node) return -ENOENT;
 
-    /* Ensure the resolved node is actually a directory */
+    /* If crossing into a filesystem, we must open the dir node dynamically! */
+    if (node->ops && node->ops->open && remainder && *remainder != '\0') {
+        FlxVfsNode_t *new_node = NULL;
+        int res = node->ops->open(node, remainder, O_RDONLY, &new_node);
+        if (res < 0) return res;
+        
+        if (!S_ISDIR(new_node->mode)) {
+            new_node->ops->close(new_node);
+            return -ENOTDIR;
+        }
+        flx_proc_cwd_node_set(new_node);
+        return 0;
+    } else if (remainder && *remainder != '\0') {
+        return -ENOENT;
+    }
+
+    /* Ensure the resolved static node is actually a directory */
     if (!S_ISDIR(node->mode)) return -ENOTDIR;
 
     flx_proc_cwd_node_set(node);
@@ -148,34 +164,75 @@ void *sys_sbrk(ptrdiff_t incr) {
  * ========================================================================= */
 
 int sys_open(const char *pathname, int flags, int mode) {
-    FlxVfsNode_t *node = flx_vfs_path_resolve(flx_proc_cwd_node_get(), pathname);
-    if (!node) return -ENOENT; /* No such file or directory */
+    const char *remainder = NULL;
+    FlxVfsNode_t *node = flx_vfs_path_resolve(flx_proc_cwd_node_get(), pathname, &remainder);
+    
+    if (!node) return -ENOENT;
+
+    /* REFACTORED: If there is an unresolved remainder and the target node does NOT have custom 
+     * open operations (like FatFs), we try to create it natively in the VFS/RAMFS. */
+    if (remainder && *remainder != '\0' && !(node->ops && node->ops->open)) {
+        if (flags & O_CREAT) {
+            int ret = flx_vfs_create(pathname, mode ? mode : 0666);
+            if (ret < 0 && ret != -EEXIST) return ret;
+            
+            /* Re-resolve the path now that the file exists in the VFS */
+            remainder = NULL;
+            node = flx_vfs_path_resolve(flx_proc_cwd_node_get(), pathname, &remainder);
+            if (!node || (remainder && *remainder != '\0')) return -ENOENT;
+        } else {
+            return -ENOENT; /* File does not exist and O_CREAT wasn't passed */
+        }
+    }
+
+    /* VFS HOOK: Let the driver initialize resources (like allocating FatFs FIL) */
+    if (node->ops && node->ops->open) {
+        FlxVfsNode_t *new_node = NULL;
+        int res = node->ops->open(node, remainder, flags, &new_node);
+        if (res < 0) return res;
+        
+        /* Overwrite the root node with the newly generated file node */
+        node = new_node; 
+    } else if (remainder && *remainder != '\0') {
+        /* Path didn't fully resolve, and this isn't a dynamic filesystem */
+        if (flags & O_CREAT) return -ENOSYS;
+        return -ENOENT;
+    }
 
     /* Allocate the lowest available File Descriptor integer */
     int fd = flx_proc_fd_alloc();
-    if (fd < 0) return -EMFILE; /* Process hit FD limit */
+    if (fd < 0) {
+        if (node->ops && node->ops->close) node->ops->close(node);
+        return -EMFILE; /* Process hit FD limit */
+    }
 
     /* Install the VFS Node into the reserved FD slot */
     if (flx_proc_fd_install(fd, node) < 0) {
+        if (node->ops && node->ops->close) node->ops->close(node);
         flx_proc_fd_free(fd);
         return -EFAULT;
+    }
+
+    FlxOpenFile_t *file = flx_proc_fd_get(fd);
+    if (file) {
+        file->flags = flags;
     }
 
     return fd;
 }
 
+int sys_creat(const char *pathname, mode_t mode) {
+    return sys_open(pathname, O_CREAT | O_WRONLY | O_TRUNC, mode);
+}
+
 int sys_close(int fd) {
-    /* If it's a regular file or device, free it */
     FlxOpenFile_t *file = flx_proc_fd_get(fd);
     if (file && file->in_use) {
+        /* VFS HOOK: Tell the driver to sync and clean up */
+        if (file->node && file->node->ops && file->node->ops->close) {
+            file->node->ops->close(file->node);
+        }
         flx_proc_fd_free(fd);
-        return 0;
-    }
-
-    /* If it's a directory stream, free it */
-    FlxDir_t *dir = flx_proc_fd_dir_get(fd);
-    if (dir && dir->in_use) {
-        flx_proc_fd_dir_free(fd);
         return 0;
     }
 
@@ -183,14 +240,17 @@ int sys_close(int fd) {
 }
 
 int sys_read(int fd, void *buf, size_t count) {
-    if (!buf) return -EFAULT; /* Bad address */
+    if (!buf) return -EFAULT;
 
     FlxOpenFile_t *file = flx_proc_fd_get(fd);
     if (!file || !file->in_use || !file->node) return -EBADF;
 
     FlxVfsNode_t *node = file->node;
+    
+    /* Directory safety check remains identical */
     if (S_ISDIR(node->mode)) return -EISDIR;
-
+	
+#if 0
     if (S_ISCHR(node->mode)) {
         dev_t rdev = (dev_t)((uintptr_t)node->data);
         FlxDev_t *dev = flx_dev_get(rdev & 0xFF);
@@ -200,14 +260,15 @@ int sys_read(int fd, void *buf, size_t count) {
         return (ret < 0) ? -EIO : ret;
     }
 
-    /* Is it a Regular File? (e.g., /bin/hexdump or a text file) */
     if (S_ISREG(node->mode)) {
+#else
+    if (S_ISCHR(node->mode) || S_ISREG(node->mode)) {
+#endif
         off_t current_offset = flx_proc_fd_offset_get(fd);
         ssize_t bytes_read = flx_vfs_read(node, buf, count, current_offset);
 
         if (bytes_read < 0) return -EIO;
 
-        /* Advance the read head if we successfully read data */
         if (bytes_read > 0) {
             flx_proc_fd_offset_set(fd, current_offset + bytes_read);
         }
@@ -225,7 +286,7 @@ int sys_write(int fd, const void *buf, size_t count) {
 
     FlxVfsNode_t *node = file->node;
     if (S_ISDIR(node->mode)) return -EISDIR;
-
+#if 0
     if (S_ISCHR(node->mode)) {
         dev_t rdev = (dev_t)((uintptr_t)node->data);
         FlxDev_t *dev = flx_dev_get(rdev & 0xFF);
@@ -235,14 +296,14 @@ int sys_write(int fd, const void *buf, size_t count) {
         return (ret < 0) ? -EIO : ret;
     }
 
-    /* Generic VFS Route: Handles TmpFS, FAT, etc. automatically */
     if (S_ISREG(node->mode)) {
+#else
+    if (S_ISCHR(node->mode) || S_ISREG(node->mode)) {
+#endif
         off_t current_offset = flx_proc_fd_offset_get(fd);
-
-        /* Delegate entirely to the VFS */
         ssize_t bytes_written = flx_vfs_write(node, buf, count, current_offset);
 
-        if (bytes_written < 0) return bytes_written; /* Pass up -EROFS or -EIO */
+        if (bytes_written < 0) return bytes_written;
 
         if (bytes_written > 0) {
             flx_proc_fd_offset_set(fd, current_offset + bytes_written);
@@ -260,83 +321,56 @@ int sys_write(int fd, const void *buf, size_t count) {
 int sys_opendir(const char *name) {
     if (!name) return -EFAULT;
 
-    FlxVfsNode_t *dir_node = flx_vfs_path_resolve(flx_proc_cwd_node_get(), name);
-    if (!dir_node) return -ENOENT;
-    if (!S_ISDIR(dir_node->mode)) return -ENOTDIR;
+    /* A directory is just a file opened with read permissions
+     * This automatically handles path resolution, FD allocation, and
+     * triggers node->ops->open() (e.g., FatFs FF_DIR allocation). */
+    int fd = sys_open(name, O_RDONLY, 0);
+    if (fd < 0) return fd;
 
-    int dir_fd = flx_proc_fd_dir_alloc();
-    if (dir_fd < 0) return -EMFILE; /* Too many open directories */
+    /* Verify the path resolved to an actual directory */
+    FlxOpenFile_t *file = flx_proc_fd_get(fd);
+    if (!file || !S_ISDIR(file->node->mode)) {
+        sys_close(fd);
+        return -ENOTDIR;
+    }
 
-    FlxDir_t *dir = flx_proc_fd_dir_get(dir_fd);
-    dir->node = dir_node;
-    dir->current_index = 0;
-
-    return dir_fd;
+    return fd;
 }
 
 int sys_readdir(int fd, struct dirent *entry) {
     if (!entry) return -EFAULT;
 
-    FlxDir_t *dir = flx_proc_fd_dir_get(fd);
-    if (!dir || !dir->in_use || !dir->node) return -EBADF;
+    /* Directory index is stored in file->offset */
+    FlxOpenFile_t *file = flx_proc_fd_get(fd);
+    if (!file || !file->in_use || !file->node) return -EBADF;
+    if (!S_ISDIR(file->node->mode)) return -ENOTDIR;
 
-    /* Virtual Offset 0: The Current Directory "." */
-    if (dir->current_index == 0) {
-        entry->d_ino = 1;
-        strncpy(entry->d_name, ".", sizeof(entry->d_name) - 1);
-        entry->d_name[sizeof(entry->d_name) - 1] = '\0';
-        dir->current_index++;
-        return 1;
+    /* Delegate all directory reading logic to the VFS backend */
+    int ret = flx_vfs_readdir(file->node, entry, file->offset);
+    
+    if (ret > 0) {
+        file->offset++; /* Increment index on successful read */
     }
-
-    /* Virtual Offset 1: The Parent Directory ".." */
-    if (dir->current_index == 1) {
-        entry->d_ino = 1;
-        strncpy(entry->d_name, "..", sizeof(entry->d_name) - 1);
-        entry->d_name[sizeof(entry->d_name) - 1] = '\0';
-        dir->current_index++;
-        return 1;
-    }
-
-    /* Virtual Offset 2+: The Physical Children */
-    int physical_index = dir->current_index - 2;
-    FlxVfsNode_t **children = dir->node->dir.children;
-
-    if (!children || !children[physical_index]) {
-        return 0; /* EOF */
-    }
-
-    FlxVfsNode_t *child = children[physical_index];
-
-    entry->d_ino = 1; /* Dummy inode */
-    strncpy(entry->d_name, child->name, sizeof(entry->d_name) - 1);
-    entry->d_name[sizeof(entry->d_name) - 1] = '\0';
-
-    dir->current_index++;
-    return 1;
+    
+    return ret;
 }
 
 int sys_closedir(int fd) {
-    FlxDir_t *dir = flx_proc_fd_dir_get(fd);
-    if (!dir || !dir->in_use) return -EBADF;
-
-    flx_proc_fd_dir_free(fd);
-    return 0;
+    /* Closing a directory is exactly the same as closing a file
+     * This will automatically trigger node->ops->close().
+     */
+    return sys_close(fd);
 }
 
 long sys_telldir(int fd) {
-    FlxDir_t *dir = flx_proc_fd_dir_get(fd);
-    if (!dir || !dir->in_use) return -EBADF;
-
-    return (long)dir->current_index;
+    off_t offset = flx_proc_fd_offset_get(fd);
+    if (offset < 0) return -EBADF;
+    return (long)offset;
 }
 
 int sys_seekdir(int fd, long loc) {
-    FlxDir_t *dir = flx_proc_fd_dir_get(fd);
-    if (!dir || !dir->in_use) return -EBADF;
     if (loc < 0) return -EINVAL;
-
-    dir->current_index = loc;
+    if (flx_proc_fd_offset_set(fd, (off_t)loc) < 0) return -EBADF;
     return 0;
 }
 
@@ -355,9 +389,7 @@ off_t sys_lseek(int fd, off_t offset, int whence) {
     FlxOpenFile_t *file = flx_proc_fd_get(fd);
     if (!file || !file->in_use || !file->node) return (off_t)-EBADF;
 
-    if (S_ISCHR(file->node->mode)) {
-        return (off_t)-ESPIPE; /* Can't seek a character device */
-    }
+    if (S_ISCHR(file->node->mode)) return (off_t)-ESPIPE; 
 
     off_t size = 0;
     struct stat st;
@@ -387,8 +419,94 @@ int sys_ioctl(int fd, int request, void *arg) {
         if (!dev) return -ENODEV;
 
         int ret = serial_ioctl(dev, request, arg);
-        return (ret < 0) ? -ENOTTY : ret; /* Inappropriate ioctl for device */
+        return ret; /* Let the specific error (-EINVAL, etc.) bubble up! */
     }
 
     return -ENOTTY;
+}
+
+/* =========================================================================
+ * File Sizing System Calls
+ * ========================================================================= */
+
+int sys_truncate(const char *path, off_t length) {
+    if (!path) return -EINVAL;
+
+    const char *remainder = NULL;
+    FlxVfsNode_t *node = flx_vfs_path_resolve(flx_proc_cwd_node_get(), path, &remainder);
+    if (!node) return -ENOENT;
+
+    /* To truncate a file in FatFs, we must open it first! */
+    if (node->ops && node->ops->open && remainder && *remainder != '\0') {
+        FlxVfsNode_t *new_node = NULL;
+        int res = node->ops->open(node, remainder, O_WRONLY, &new_node);
+        if (res < 0) return res;
+        
+        res = new_node->ops->truncate(new_node, length);
+        new_node->ops->close(new_node);
+        return res;
+    } else if (remainder && *remainder != '\0') {
+        return -ENOENT;
+    }
+
+    if (node->ops && node->ops->truncate) {
+        return node->ops->truncate(node, length);
+    }
+    return -EINVAL;
+}
+
+int sys_ftruncate(int fd, off_t length) {
+    FlxOpenFile_t *file = flx_proc_fd_get(fd);
+    if (!file || !file->in_use || !file->node) return -EBADF; 
+
+    if (!(file->flags & (O_WRONLY | O_RDWR))) return -EACCES;
+
+    if (file->node->ops && file->node->ops->truncate) {
+        return file->node->ops->truncate(file->node, length);
+    }
+    return -EINVAL;
+}
+
+/* =========================================================================
+ * Directory and Link Creation/Deletion System Calls
+ * ========================================================================= */
+
+int sys_mkdir(const char *path, mode_t mode) {
+    return flx_vfs_mkdir(path, mode);
+}
+
+int sys_rmdir(const char *path) {
+    return flx_vfs_rmdir(path);
+}
+
+int sys_unlink(const char *path) {
+    return flx_vfs_unlink(path);
+}
+
+int sys_link(const char *oldpath, const char *newpath) {
+    return flx_vfs_link(oldpath, newpath);
+}
+
+int sys_rename(const char *oldpath, const char *newpath) {
+    return flx_vfs_rename(oldpath, newpath);
+}
+
+/* =========================================================================
+ * File System Mount / Unmount System Calls
+ * ========================================================================= */
+
+int sys_mount(const char *source, const char *target,
+              const char *filesystemtype, unsigned long mountflags,
+              const void *data)
+{
+    if (!source || !target || !filesystemtype) return -EINVAL;
+
+    /* Delegate to the VFS Registry!
+     * It will search for the requested filesystem type and execute its mount hook. */
+    return flx_vfs_mount_type(source, target, filesystemtype, mountflags, data);
+}
+
+int sys_umount(const char *target) {
+    if (!target) return -EINVAL;
+    return flx_vfs_unmount(target);
 }

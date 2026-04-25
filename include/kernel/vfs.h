@@ -1,64 +1,104 @@
-/**
- * @file vfs.h
+/* @file felix/include/kernel/vfs.h
  * @brief Virtual File System Definitions.
  */
 
 #ifndef FELIX_KERNEL_VFS_H
 #define FELIX_KERNEL_VFS_H
 
-#include <sys/stat.h> /* For POSIX mode_t and struct stat */
-#include <dirent.h>   /* For POSIX directory streams */
+#include <sys/stat.h>
+#include <dirent.h>
 #include <stdint.h>
-#include <sys/types.h> /* For ssize_t and off_t */
+#include <stdbool.h>
+#include <sys/types.h>
 #include "kernel/devices.h"
 #include "kernel/binfmt.h"
 
 typedef struct FlxVfsNode FlxVfsNode_t;
 
 /**
+ * @brief Represents an active connection to a VFS Node.
+ * Future-proofs the API for a full File Descriptor table.
+ */
+typedef struct FlxFile {
+    FlxVfsNode_t *node; /* The underlying device or file */
+    off_t offset;       /* The current read/write position */
+    int flags;          /* O_RDONLY, O_NONBLOCK, etc. */
+} FlxFile_t;
+
+
+/**
  * @brief The VFS Operations Table
- * Every filesystem type (devfs, binfs, etc.) defines ONE of these as a const global.
  */
 typedef struct {
-    int (*getattr)(FlxVfsNode_t *node, struct stat *st);
-    int (*open)(FlxVfsNode_t *node, int flags);
-    ssize_t (*read)(FlxVfsNode_t *node, void *buf, size_t count, off_t offset);
-    ssize_t (*write)(FlxVfsNode_t *node, const void *buf, size_t count, off_t offset);
+    int (*getattr)(FlxVfsNode_t *node, const char *path, struct stat *st);
+    int (*open)(FlxVfsNode_t *node, const char *path, int flags, FlxVfsNode_t **out_node);
+    ssize_t (*read)(FlxFile_t *file, void *buf, size_t count);
+    ssize_t (*write)(FlxFile_t *file, const void *buf, size_t count);
     int (*close)(FlxVfsNode_t *node);
+    int (*unmount)(FlxVfsNode_t *node); 
+    int (*truncate)(FlxVfsNode_t *node, off_t length);
+    int (*readdir)(FlxVfsNode_t *node, struct dirent *entry, int index);
+    
+    /* POSIX Creation and Deletion Operations */
+    int (*mkdir)(FlxVfsNode_t *parent, const char *name, mode_t mode);
+    int (*rmdir)(FlxVfsNode_t *parent, const char *name);
+    int (*mknod)(FlxVfsNode_t *parent, const char *name, mode_t mode, dev_t dev);
+    int (*create)(FlxVfsNode_t *parent, const char *name, mode_t mode);
+    int (*unlink)(FlxVfsNode_t *parent, const char *name);
+    int (*link)(FlxVfsNode_t *parent, const char *name, FlxVfsNode_t *target);
+    int (*rename)(FlxVfsNode_t *node, const char *oldname, const char *newname);
 } FlxVfsOps_t;
 
-/* VFS Node Flags */
-#define FLX_VFS_FLAG_ALLOCATED_NAME (1 << 0) /* If set, the VFS must free() the name upon node destruction */
-#define FLX_VFS_FLAG_ALLOCATED_NODE (1 << 1) /* If set, the VFS must free() the node structure itself */
+/* KERNEL INTERNAL FLAGS */
+#define FLX_VFS_KFLAG_ALLOCATED_NAME (1 << 0)
+#define FLX_VFS_KFLAG_ALLOCATED_NODE (1 << 1)
+#define FLX_VFS_KFLAG_OPAQUE_NODE (1 << 2)
 
 struct FlxVfsNode {
-    const char *name;     /* Pointer to string (either in .rodata or heap) */
-    uint8_t flags;        /* Node lifecycle flags */
-
+    const char *name;
+    uint8_t kflags;       
     FlxVfsNode_t *parent;
+    struct FlxVfsNode *mount_overlay;
+    mode_t mode; 
 
-    mode_t mode; /* POSIX file mode/permissions (S_IFREG, S_IFDIR, etc.) */
-
-    /* VFS Tree / Payload Union */
     union {
-        void *data; /* S_IFREG: Points to text, scripts, or FlxLinkedExec_t payloads */
+        void *data; 
         struct {
-            FlxVfsNode_t **children; /* S_IFDIR: Null-terminated array of children */
+            FlxVfsNode_t **children; 
         } dir;
         int dev_id; /* S_IFCHR: Device ID */
     };
+
+    size_t size; /* Added for dynamic file tracking (tmpfs/ramfs) */
 
     /* Pointer to the filesystem operations table */
     const FlxVfsOps_t *ops;
 };
 
+/* =========================================================================
+ * Static VFS Tree Macros
+ * ========================================================================= */
+
 /**
- * @brief Macro to statically declare a VFS Node that points to a payload.
+ * @brief Macro to statically declare a VFS Directory Node.
+ */
+#define FLX_VFS_DECLARE_DIR(node_var, node_name_str, parent_ptr, children_array) \
+    static FlxVfsNode_t node_var = { \
+        .name = node_name_str, \
+        .kflags = 0, \
+        .parent = (parent_ptr), \
+        .mode = S_IFDIR | 0755, \
+        .dir = { .children = (children_array) }, \
+        .ops = NULL \
+    }
+
+/**
+ * @brief Macro to statically declare a VFS File Node.
  */
 #define FLX_VFS_DECLARE_NODE(node_var, node_name_str, parent_ptr, payload_ptr) \
     static FlxVfsNode_t node_var = { \
         .name = node_name_str, \
-        .flags = 0, \
+        .kflags = 0, \
         .parent = (parent_ptr), \
         .mode = S_IFREG | 0555, \
         .data = (void*)(payload_ptr), \
@@ -78,7 +118,7 @@ struct FlxVfsNode {
     FLX_VFS_DECLARE_NODE(var_name, cmd_name, parent_ptr, &__payload_##var_name)
 
 /**
- * @brief Declares a LINKED command using automatic linker bounds for dynamic sizing!
+ * @brief Declares a LINKED command using automatic linker bounds for dynamic sizing.
  * @param var_name The base name for the generated variables.
  * @param cmd_name The string name of the command (e.g., "ls").
  * @param parent_ptr Pointer to the parent directory node.
@@ -89,37 +129,29 @@ struct FlxVfsNode {
     FLX_BINFMT_DECLARE_CMD_PAYLOAD(__payload_##var_name, exec_func, exec_func); \
     FLX_VFS_DECLARE_NODE(var_name, cmd_name, parent_ptr, &__payload_##var_name)
 
-/* API */
-FlxVfsNode_t *flx_vfs_root_init(void);
-int flx_vfs_mount(FlxVfsNode_t *fs_node, const char *target_path);
+/* --- VFS Core API --- */
+void flx_vfs_root_set(FlxVfsNode_t *root);
 FlxVfsNode_t *flx_vfs_root_get(void);
 
-/* vfs_namei */
-FlxVfsNode_t *flx_vfs_path_resolve(FlxVfsNode_t *cwd_node, const char *path);
+FlxVfsNode_t *flx_vfs_path_resolve(FlxVfsNode_t *start_node, const char *path, const char **remainder);
 
-/* POSIX API */
+int flx_vfs_mount(FlxVfsNode_t *fs_node, const char *target_path);
+int flx_vfs_unmount(const char *target_path);
 int flx_vfs_stat(FlxVfsNode_t *node, struct stat *st);
 ssize_t flx_vfs_read(FlxVfsNode_t *node, void *buf, size_t count, off_t offset);
 ssize_t flx_vfs_write(FlxVfsNode_t *node, const void *buf, size_t count, off_t offset);
-
-int flx_vfs_chdir(const char *path);
-
-/* --- Directory Stream API --- */
-typedef struct {
-    FlxVfsNode_t *node;
-    bool in_use;
-    int current_index;
-    struct dirent entry;
-} FlxDir_t;
-
-int flx_vfs_opendir(const char *name);
-struct dirent *flx_vfs_readdir(int fd);
-int flx_vfs_closedir(int fd);
-void flx_vfs_seekdir(int fd, long loc);
-long flx_vfs_telldir(int fd);
-void flx_vfs_rewinddir(int fd);
+int flx_vfs_readdir(FlxVfsNode_t *node, struct dirent *entry, int index);
+int flx_vfs_truncate(FlxVfsNode_t *node, off_t length);
 char *flx_vfs_get_path(FlxVfsNode_t *node, char *buf, size_t size);
-char *flx_vfs_getcwd(char *buf, size_t size);
+
+/* POSIX Directory and Link API */
+int flx_vfs_mkdir(const char *path, mode_t mode);
+int flx_vfs_rmdir(const char *path);
+int flx_vfs_create(const char *path, mode_t mode);
+int flx_vfs_mknod(const char *path, mode_t mode, dev_t dev);
+int flx_vfs_unlink(const char *path);
+int flx_vfs_link(const char *oldpath, const char *newpath);
+int flx_vfs_rename(const char *oldpath, const char *newpath);
 
 /**
  * @brief Allocates an executable node and binary payload from the global kernel pool.
@@ -131,5 +163,30 @@ char *flx_vfs_getcwd(char *buf, size_t size);
  * @return Pointer to the populated VFS Node, or NULL if the pool is full.
  */
 FlxVfsNode_t* flx_vfs_create_exec_node(const char *name, int (*main_func)(int argc, char **argv), size_t explicit_size, const void *start_ptr, const void *end_ptr);
+
+/* =========================================================================
+ * VFS Filesystem Registry API
+ * ========================================================================= */
+
+/**
+ * @brief Defines a mountable filesystem driver
+ */
+typedef struct FlxFsType {
+    const char *name;
+    /* The driver initializes the hardware and returns its root node via out_node.
+       Returns 0 on success, or a negative POSIX error code on failure. */
+    int (*mount)(const char *source, unsigned long mountflags, const void *data, FlxVfsNode_t **out_node);
+    struct FlxFsType *next;
+} FlxFsType_t;
+
+/**
+ * @brief Registers a new filesystem driver with the kernel.
+ */
+int flx_vfs_register_fs(FlxFsType_t *fs);
+
+/**
+ * @brief Locates a registered filesystem by name and calls its mount hook.
+ */
+int flx_vfs_mount_type(const char *source, const char *target, const char *filesystemtype, unsigned long mountflags, const void *data);
 
 #endif /* FELIX_KERNEL_VFS_H */

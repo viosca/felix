@@ -1,7 +1,7 @@
-/* * WHOLE-FILE ARCHITECTURE GUARD:
- * Prevents SoftConsole from compiling PolarFire code on ARM/x86 targets
+/**
+ * @file felix/arch/polarfire/mss_serial_port.c
  */
-#if defined(__riscv)
+
 
 #include "mss_serial_port.h"
 #include "kernel/devices.h"
@@ -162,4 +162,3 @@ const FlxUartOps_t g_mss_uart_ops = {
     .irq_mask = mss_irq_mask
 };
 
-#endif /* __riscv */

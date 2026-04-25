@@ -30,7 +30,7 @@ FlxVfsNode_t* flx_vfs_create_exec_node(const char *name, int (*main_func)(int ar
 
             /* 2. Setup Node */
             cmd_node_pool[i].name = name; /* Assume caller manages string memory */
-            cmd_node_pool[i].flags = 0;
+            cmd_node_pool[i].kflags = 0;
             cmd_node_pool[i].parent = NULL;
             cmd_node_pool[i].mode = S_IFREG | 0555;
             cmd_node_pool[i].data = &cmd_payload_pool[i];

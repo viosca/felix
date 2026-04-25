@@ -4,7 +4,7 @@
 #include <dirent.h>
 #include <stdint.h>
 #include <shell/flx_sh.h>
-#include <fs/bin/flx_fs_bin_cmd_ls.h>
+#include <fs/rootfs/bin/flx_fs_bin_cmd_ls.h>
 #include <sys/stat.h>
 #include <stdbool.h>
 #include <unistd.h>

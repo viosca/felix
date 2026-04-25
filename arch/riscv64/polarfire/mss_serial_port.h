@@ -1,3 +1,6 @@
+/**
+ * @file felix/arch/polarfire/mss_serial_port.h
+ */
 #ifndef _MSS_SERIAL_PORT_H
 #define _MSS_SERIAL_PORT_H
 

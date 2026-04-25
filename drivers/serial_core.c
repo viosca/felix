@@ -1,3 +1,6 @@
+/**
+ * @file felix/arch/polarfire/mss_serial_port.h
+ */
 #include <errno.h>
 #include "drivers/serial.h"
 #include "kernel/devices.h"
@@ -82,6 +85,17 @@ int flx_serial_isr_tx_pop(int dev_id, uint8_t *byte) {
 }
 
 /* --- VFS Pass-through --- */
-int serial_read(FlxDev_t *dev, char *buf, size_t count) { return tty_read(&dev->tty, buf, count); }
-int serial_write(FlxDev_t *dev, const char *buf, size_t count) { return tty_write(&dev->tty, buf, count); }
-int serial_ioctl(FlxDev_t *dev, int request, void *arg) { return tty_ioctl(&dev->tty, request, arg); }
+int serial_read(FlxDev_t *dev, char *buf, size_t count) {
+    if (!dev) return -ENODEV;
+    return tty_read(&dev->tty, buf, count);
+}
+
+int serial_write(FlxDev_t *dev, const char *buf, size_t count) {
+    if (!dev) return -ENODEV;
+    return tty_write(&dev->tty, buf, count);
+}
+
+int serial_ioctl(FlxDev_t *dev, int request, void *arg) {
+    if (!dev) return -ENODEV;
+    return tty_ioctl(&dev->tty, request, arg);
+}

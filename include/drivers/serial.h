@@ -1,3 +1,6 @@
+/**
+ * @file felix/include/drivers/serial.h
+ */
 #ifndef _FLX_SERIAL_H
 #define _FLX_SERIAL_H
 

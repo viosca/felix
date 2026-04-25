@@ -6,6 +6,8 @@
 *.hex
 *.map
 *.lst
+*.txt
+*.bak
 
 # --- SoftConsole / Eclipse Cruft ---
 .metadata/
@@ -19,6 +21,10 @@ RemoteSystemsTempFiles/
 LIM-Debug-DiscoveryKit/
 Debug/
 Release/
+external/fatfs/documents/
+external/fatfs/*.zip
+external/fatfs/*.patch
+external/fatfs/source/*.orig
 
 # --- VS Code Cruft ---
 .vscode/

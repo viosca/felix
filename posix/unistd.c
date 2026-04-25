@@ -96,3 +96,70 @@ unsigned int sleep(unsigned int seconds) {
     sys_usleep((uint64_t)seconds * 1000000ULL);
     return 0;
 }
+
+int truncate(const char *path, off_t length) {
+    int ret = sys_truncate(path, length);
+    if (ret < 0) {
+        errno = -ret;
+        return -1;
+    }
+    return 0;
+}
+
+int ftruncate(int fd, off_t length) {
+    int ret = sys_ftruncate(fd, length);
+    if (ret < 0) {
+        errno = -ret;
+        return -1;
+    }
+    return 0;
+}
+
+/* =========================================================================
+ * POSIX Directory and Link Creation/Deletion Operations
+ * ========================================================================= */
+
+int mkdir(const char *path, mode_t mode) {
+    int ret = sys_mkdir(path, mode);
+    if (ret < 0) {
+        errno = -ret;
+        return -1;
+    }
+    return 0;
+}
+
+int rmdir(const char *path) {
+    int ret = sys_rmdir(path);
+    if (ret < 0) {
+        errno = -ret;
+        return -1;
+    }
+    return 0;
+}
+
+int link(const char *oldpath, const char *newpath) {
+    int ret = sys_link(oldpath, newpath);
+    if (ret < 0) {
+        errno = -ret;
+        return -1;
+    }
+    return 0;
+}
+
+int unlink(const char *path) {
+    int ret = sys_unlink(path);
+    if (ret < 0) {
+        errno = -ret;
+        return -1;
+    }
+    return 0;
+}
+
+int rename(const char *oldpath, const char *newpath) {
+    int ret = sys_rename(oldpath, newpath);
+    if (ret < 0) {
+        errno = -ret;
+        return -1;
+    }
+    return 0;
+}

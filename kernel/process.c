@@ -25,12 +25,6 @@ static inline FlxOpenFile_t *get_file_desc(int fd) {
     return &pcb->fds[fd];
 }
 
-static inline FlxDir_t *get_dir_desc(int fd) {
-    FlxProcPCB_t *pcb = get_current_pcb();
-    if (!pcb || fd < 0 || fd >= FLX_PROC_MAX_DIR_STREAMS) return NULL;
-    return &pcb->dir_streams[fd];
-}
-
 static inline int find_env_slot(FlxProcPCB_t *pcb, const char *name, size_t name_len) {
     for (int i = 0; i < FLX_PROC_MAX_ENV_VARS; i++) {
         if (pcb->env[i][0] != '\0' &&
@@ -57,15 +51,11 @@ void flx_proc_init_first(void) {
         pcb_shell->fds[i].offset = 0;
     }
 
-    for (int i = 0; i < FLX_PROC_MAX_DIR_STREAMS; i++) {
-        pcb_shell->dir_streams[i].in_use = false;
-    }
-
     for (int i = 0; i < FLX_PROC_MAX_ENV_VARS; i++) {
         pcb_shell->env[i][0] = '\0';
     }
 
-    pcb_shell->cwd = flx_vfs_root_init();
+    pcb_shell->cwd = flx_vfs_root_get();
 
     flx_proc_setenv("TERM", "vt100", 1);
     flx_proc_setenv("PATH", "/bin", 1);
@@ -229,44 +219,26 @@ int flx_proc_unsetenv(const char *name) {
     return 0;
 }
 
-
-/* =========================================================================
- * Directory Stream Management
- * ========================================================================= */
-
-int flx_proc_fd_dir_alloc(void) {
-    FlxProcPCB_t *pcb = get_current_pcb();
-    if (!pcb) return -1;
-
-    for (int i = 0; i < FLX_PROC_MAX_DIR_STREAMS; i++) {
-        if (!pcb->dir_streams[i].in_use) {
-            pcb->dir_streams[i].in_use = true;
-            return i;
-        }
-    }
-    return -1;
-}
-
-FlxDir_t *flx_proc_fd_dir_get(int fd) {
-    FlxDir_t *dir = get_dir_desc(fd);
-    if (dir && dir->in_use) return dir;
-    return NULL;
-}
-
-void flx_proc_fd_dir_free(int fd) {
-    FlxDir_t *dir = get_dir_desc(fd);
-    if (dir) dir->in_use = false;
-}
-
 /* =========================================================================
  * System Calls
  * ========================================================================= */
 
 int flx_proc_exec(const char *path, int argc, char **argv) {
-    FlxVfsNode_t *cmd_node = flx_vfs_path_resolve(flx_proc_cwd_node_get(), path);
+    const char *remainder = NULL;
+    FlxVfsNode_t *cmd_node = flx_vfs_path_resolve(flx_proc_cwd_node_get(), path, &remainder);
 
-    if (!cmd_node || !S_ISREG(cmd_node->mode)) {
+    /* 1. Guard: Reject invalid paths AND dynamic filesystem boundaries.
+     * If remainder has text, they are trying to execute a file off the SD card,
+     * which we cannot do until an ELF loader is implemented! */
+    if (!cmd_node || (remainder && *remainder != '\0')) {
         return -1;
     }
+
+    /* 2. Guard: Must be a regular file, not a directory */
+    if (!S_ISREG(cmd_node->mode)) {
+        return -1;
+    }
+
+    /* 3. Safe to execute: cmd_node->data is guaranteed to be an in-memory payload */
     return flx_binfmt_load(cmd_node->data, argc, argv);
 }

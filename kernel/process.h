@@ -14,8 +14,7 @@
 #define FLX_PROC_PID_KERNEL 0
 #define FLX_PROC_PID_SHELL 1
 
-#define FLX_PROC_MAX_OPEN_FILES 16
-#define FLX_PROC_MAX_DIR_STREAMS 16
+#define FLX_PROC_MAX_OPEN_FILES 32
 
 /* --- Environment Constraints --- */
 #define FLX_PROC_MAX_ENV_VARS 16
@@ -24,6 +23,7 @@
 /* Represents an open file tied to a process */
 typedef struct {
     bool in_use;        /* true if fd is in use or in process of being allocated. */
+    int flags;          /* how the file was opened. */
     FlxVfsNode_t *node; /* NULL if this FD is closed */
     off_t offset;       /* Current read/write head */
 } FlxOpenFile_t;
@@ -31,8 +31,6 @@ typedef struct {
 typedef struct {
     int pid;
     FlxOpenFile_t fds[FLX_PROC_MAX_OPEN_FILES];
-
-    FlxDir_t dir_streams[FLX_PROC_MAX_DIR_STREAMS];
 
     FlxVfsNode_t *cwd; /**< Current Working Directory */
 
@@ -70,10 +68,6 @@ char *flx_proc_getcwd(char *buf, size_t size);
 char *flx_proc_getenv(const char *name);
 int flx_proc_setenv(const char *name, const char *value, int overwrite);
 int flx_proc_unsetenv(const char *name);
-
-int flx_proc_fd_dir_alloc(void);
-FlxDir_t *flx_proc_fd_dir_get(int fd);
-void flx_proc_fd_dir_free(int fd);
 
 /* --- System Calls --- */
 int flx_proc_exec(const char *path, int argc, char **argv);

@@ -1,5 +1,5 @@
 /**
- * @file tty.h
+ * @file felix/kernel/tty.h
  * @brief POSIX Line Discipline (TTY Shim) for Felix OS.
  */
 

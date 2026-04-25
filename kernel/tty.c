@@ -1,5 +1,5 @@
 /**
- * @file tty.c
+ * @file felix/kernel/tty.c
  * @brief POSIX Line Discipline Implementation.
  */
 
@@ -129,7 +129,7 @@ int tty_read(tty_t *tty, char *buf, size_t count)
 
     if (!tty || count == 0)
         return 0;
-
+#if 0
     /* BAREMETAL BLOCKING READ: Spin until data is available.
      * This prevents read() from returning 0 (which triggers EOF in newlib).
      */
@@ -142,6 +142,16 @@ int tty_read(tty_t *tty, char *buf, size_t count)
                 break;
         }
     }
+#else
+    /* NON-BLOCKING RETURN: If no data is available, return 0 immediately.
+     * The higher-level VFS driver (mmuart_vfs_read) will handle the blocking 
+     * loop and tick the background OS tasks! */
+    if (tty->termios.c_lflag & ICANON) {
+        if (tty->lines_available == 0) return 0;
+    } else {
+        if (ring_buffer_is_empty(&tty->rx_buffer)) return 0;
+    }
+#endif
 
 
     while (bytes_read < count && !ring_buffer_is_empty(&tty->rx_buffer) ) {

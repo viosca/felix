@@ -2,7 +2,8 @@
 #include <stddef.h>
 #include "kernel/vfs.h"
 #include "kernel/binfmt.h"
-#include "fs/test/flx_fs_test.h"
+#include "fs/rootfs/flx_fs_root.h"
+#include "fs/rootfs/test/flx_fs_test.h"
 
 /* Forward declaration of the directory node so children can reference it as parent */
 static FlxVfsNode_t node_test;
@@ -24,5 +25,5 @@ static FlxVfsNode_t node_test = {
 };
 
 int flx_fs_test_init(void) {
-    return flx_vfs_mount(&node_test, "/test");
+    return flx_fs_root_add_dir(&node_test);
 }
