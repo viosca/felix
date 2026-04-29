@@ -9,7 +9,7 @@
 #include "drivers/sdcard_hal.h"
 #include <stdio.h>
 #include <errno.h>
-#include <fs/rootfs/dev/flx_fs_dev.h.bak>
+#include <fs/rootfs/dev/flx_fs_dev.h>
 
 #define DEBOUNCE_TICKS_TARGET 10
 #define SD_SECTOR_SIZE        512

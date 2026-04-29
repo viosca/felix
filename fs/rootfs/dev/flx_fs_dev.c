@@ -3,6 +3,7 @@
  * @brief Devfs Filesystem wrapper using the generic RAMFS driver
  */
 #include "fs/rootfs/dev/flx_fs_dev.h"
+#include "fs/rootfs/flx_fs_root.h"
 #include "fs/flx_fs_ramfs.h"
 #include <sys/stat.h>
 

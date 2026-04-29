@@ -1,6 +1,6 @@
 /** @file felix/kernel/init.c
  */
-#include <fs/rootfs/dev/flx_fs_dev.h.bak>
+#include <fs/rootfs/dev/flx_fs_dev.h>
 #include "felix.h"
 #include <stdio.h>
 #include <unistd.h>
