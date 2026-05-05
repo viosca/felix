@@ -29,4 +29,6 @@ void flx_blk_manager_push_event(FlxBlkDev_t dev, FlxBlkEvent_t event);
  */
 void flx_blk_manager_tick(void);
 
+void blk_manager_daemon_task(void *arg);
+
 #endif /* FELIX_INCLUDE_KERNEL_BLK_MANAGER_H */

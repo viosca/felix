@@ -9,7 +9,7 @@
 #include "kernel/devices.h"
 #include "kernel/vfs.h" /* PCB needs to know about VfsNode_t */
 
-#define FLX_PROC_MAX_PROCS 2
+//#define FLX_PROC_MAX_PROCS 2
 
 #define FLX_PROC_PID_KERNEL 0
 #define FLX_PROC_PID_SHELL 1
@@ -71,5 +71,8 @@ int flx_proc_unsetenv(const char *name);
 
 /* --- System Calls --- */
 int flx_proc_exec(const char *path, int argc, char **argv);
+
+void flx_proc_init_current(int pid);
+void flx_proc_exit(void);
 
 #endif /* FELIX_KERNEL_PROCESS_H */

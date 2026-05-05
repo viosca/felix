@@ -230,7 +230,7 @@ void sdcard_hal_irq_enable(void) {
     PLIC_SetPriority_Threshold(0); 
     PLIC_EnableIRQ(MMC_main_PLIC);
     
-    set_csr(mie, MIP_MEIP);
+    //set_csr(mie, MIP_MEIP);
 }
 
 void sdcard_hal_irq_disable(void) {

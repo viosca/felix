@@ -54,6 +54,9 @@ typedef struct {
 
     /* --- Buffers --- */
     ring_buffer_t tx_buffer;
+
+    void *rx_semaphore;
+
 } FlxDev_t;
 
 /**

@@ -9,7 +9,8 @@
 #include "drivers/sdcard_hal.h"
 #include <stdio.h>
 #include <errno.h>
-#include <fs/rootfs/dev/flx_fs_dev.h>
+#include "fs/rootfs/dev/flx_fs_dev.h"
+#include "kernel/sched.h"
 
 #define DEBOUNCE_TICKS_TARGET 10
 #define SD_SECTOR_SIZE        512
@@ -166,5 +167,16 @@ void flx_blk_manager_tick(void) {
                 }
             }
         }
+    }
+}
+
+void blk_manager_daemon_task(void *arg) {
+    (void)arg;
+    while(1) {
+        /* Tick the block manager */
+        flx_blk_manager_tick();
+
+        /* Sleep for 10ms, then wake up and tick again */
+        sched_sleep_ms(10);
     }
 }

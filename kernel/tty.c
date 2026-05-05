@@ -4,6 +4,7 @@
  */
 
 #include "kernel/tty.h"
+#include "kernel/sched.h"
 #include <errno.h>
 #include <string.h>
 
@@ -20,7 +21,6 @@ void tty_init(tty_t *tty, void (*hw_putc)(void *, char), void *hw_ctx)
     tty->hw_putc = hw_putc;
     tty->hw_ctx = hw_ctx;
 
-    /* Initialize your existing ring buffer */
     ring_buffer_init(&tty->rx_buffer);
 
     /* Sane POSIX Defaults */
@@ -154,16 +154,30 @@ int tty_read(tty_t *tty, char *buf, size_t count)
 #endif
 
 
-    while (bytes_read < count && !ring_buffer_is_empty(&tty->rx_buffer) ) {
+    while (bytes_read < count) {
         c = 0;
-        ring_buffer_read(&tty->rx_buffer, &c);
 
-        buf[bytes_read++] = c;
+        /* --- CRITICAL SECTION START ---
+         * Pause hardware interrupts so the ISR cannot write to the buffer
+         * while we are pulling data out of it */
+        sched_critical_enter();
+
+        if (ring_buffer_is_empty(&tty->rx_buffer)) {
+            sched_critical_exit(); /* --- CRITICAL SECTION END --- */
+            break;
+        }
+        ring_buffer_read(&tty->rx_buffer, &c);
 
         if ((tty->termios.c_lflag & ICANON) && (c == '\n' || c == tty->termios.c_cc[VEOF])) {
             tty->lines_available--;
+            sched_critical_exit(); /* --- CRITICAL SECTION END --- */
+            buf[bytes_read++] = c;
             break; /* Stop reading at the newline */
         }
+
+        sched_critical_exit(); /* --- CRITICAL SECTION END --- */
+
+        buf[bytes_read++] = c;
     }
 
     if (!(tty->termios.c_lflag & ICANON))

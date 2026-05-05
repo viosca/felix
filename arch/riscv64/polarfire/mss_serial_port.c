@@ -137,7 +137,7 @@ static int mss_hw_init(int dev_id, void *hw_instance) {
 
     PLIC_SetPriority(irq, 1);
     PLIC_EnableIRQ(irq);
-    set_csr(mie, MIP_MSIP | MIP_MEIP);
+    //set_csr(mie, MIP_MSIP | MIP_MEIP);
     return 0;
 }
 

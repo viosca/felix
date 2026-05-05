@@ -4,15 +4,17 @@
 #include <stdio.h>
 #include <dirent.h>
 #include "kernel/process.h"
+#include "kernel/sched.h"
 #include "kernel/binfmt.h"
-
-static FlxProcPCB_t kprocs[FLX_PROC_MAX_PROCS] = {0};
-
+#include "kernel/kmalloc.h"
+#include "kernel/klog.h"
+//static FlxProcPCB_t kprocs[FLX_PROC_MAX_PROCS] = {0};
 /* The global pointer to the currently running task */
-FlxProcPCB_t *g_current_task = NULL;
+//FlxProcPCB_t *g_current_task = NULL;
 
 static inline FlxProcPCB_t *get_current_pcb(void) {
-    return g_current_task;
+    return (FlxProcPCB_t *)sched_get_tls();
+    //return g_current_task;
 }
 
 /* =========================================================================
@@ -39,11 +41,14 @@ static inline int find_env_slot(FlxProcPCB_t *pcb, const char *name, size_t name
 /* =========================================================================
  * Process Initialization
  * ========================================================================= */
-
+#if 0
 void flx_proc_init_first(void) {
     FlxProcPCB_t *pcb_shell = &kprocs[FLX_PROC_PID_SHELL];
-    g_current_task = pcb_shell;
+    //g_current_task = pcb_shell;
     pcb_shell->pid = FLX_PROC_PID_SHELL;
+
+    /* Inject the PCB into the FreeRTOS TCB */
+    sched_set_tls((void *)pcb_shell);
 
     for (int i = 0; i < FLX_PROC_MAX_OPEN_FILES; i++) {
         pcb_shell->fds[i].in_use = false;
@@ -60,6 +65,47 @@ void flx_proc_init_first(void) {
     flx_proc_setenv("TERM", "vt100", 1);
     flx_proc_setenv("PATH", "/bin", 1);
     flx_proc_setenv("PWD", "/", 1);
+}
+#endif
+/* =========================================================================
+ * Process Initialization & Teardown
+ * ========================================================================= */
+
+void flx_proc_init_current(int pid) {
+    /* Dynamically allocate the PCB on the kernel heap */
+    FlxProcPCB_t *pcb = kzalloc(sizeof(FlxProcPCB_t));
+    if (!pcb) {
+        kprintf("\r\n[KERNEL PANIC] Out of memory allocating PCB for PID %d!\r\n", pid);
+        while(1);
+    }
+
+    pcb->pid = pid;
+
+    /* Inject the new PCB into the currently executing FreeRTOS TCB */
+    sched_set_tls((void *)pcb);
+
+    /* (kzalloc already zeroed the fds and env arrays, so we just set defaults) */
+    pcb->cwd = flx_vfs_root_get();
+
+    flx_proc_setenv("TERM", "vt100", 1);
+    flx_proc_setenv("PATH", "/bin", 1);
+    flx_proc_setenv("PWD", "/", 1);
+}
+
+void flx_proc_exit(void) {
+    FlxProcPCB_t *pcb = get_current_pcb();
+    if (pcb) {
+        /* TODO in the future: Loop through pcb->fds and sys_close() any open files here! */
+
+        /* Free the memory back to the kernel heap */
+        kfree(pcb);
+
+        /* Clear the FreeRTOS TLS pointer just to be safe */
+        sched_set_tls(NULL);
+    }
+
+    /* Safely destroy the FreeRTOS task */
+    sched_thread_exit();
 }
 
 /* =========================================================================

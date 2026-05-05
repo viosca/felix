@@ -21,7 +21,7 @@ void felix_init(void) {
 
     /* Initialize core software subsystems */
     flx_dev_init();           /* Zero out the global device table */
-    flx_proc_init_first();    /* Setup FD table and safely fetch the VFS root (/) for CWD */
+    //flx_proc_init_first();    /* Setup FD table and safely fetch the VFS root (/) for CWD */
 
     fatfs_vfs_register();
 

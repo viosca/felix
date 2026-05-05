@@ -6,6 +6,7 @@
 #include "kernel/devices.h"
 #include "kernel/tty.h"
 #include "cpu.h"
+#include "kernel/sched.h"
 
 /* Generic State Tracking */
 static void *g_hw_instances[FLX_DEV_MAX_DEVICES];
@@ -58,6 +59,9 @@ int serial_init(int dev_id, void *hw_instance, const FlxUartOps_t *ops) {
     ring_buffer_init(&dev->tx_buffer);
     tty_init(&dev->tty, uart_hw_putc, dev);
 
+    /* Create the OS synchronization primitive --- */
+    sched_sem_create(&dev->rx_semaphore);
+
     /* Hand off hardware specific initialization to the vendor driver */
     if (ops->hw_init) {
         return ops->hw_init(dev_id, hw_instance);
@@ -71,8 +75,12 @@ void flx_serial_isr_rx_byte(int dev_id, uint8_t byte) {
     FlxDev_t *dev = flx_dev_get(dev_id);
     if (dev) {
         tty_receive_char(&dev->tty, (char)byte);
+        sched_sem_give_from_isr(dev->rx_semaphore);
     }
 }
+
+
+
 
 int flx_serial_isr_tx_pop(int dev_id, uint8_t *byte) {
     FlxDev_t *dev = flx_dev_get(dev_id);
