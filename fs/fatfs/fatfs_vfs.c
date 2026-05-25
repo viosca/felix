@@ -15,6 +15,20 @@
 #include <fcntl.h>
 #include <stdio.h>
 
+/* Track the underlying VFS block node for each FatFs logical drive (0-9) */
+#define FATFS_MAX_VOLUMES 10
+static FlxVfsNode_t *g_fatfs_blk_nodes[FATFS_MAX_VOLUMES] = {0};
+
+/* Exposed for fatfs_diskio.c */
+FlxVfsNode_t* fatfs_get_blk_node(BYTE pdrv) {
+    if (pdrv >= FATFS_MAX_VOLUMES) return NULL;
+    return g_fatfs_blk_nodes[pdrv];
+}
+
+#if FF_MULTI_PARTITION
+#error "Please disable FF_MULTI_PARTITION in ffconf.h. Felix OS block manager handles partitions natively!"
+#endif
+
 /* Use FatFs's internal Long File Name constant (typically 255) + 1 for null terminator */
 #ifndef FF_MAX_LFN
 #define FF_MAX_LFN 255 /* Fallback in case LFN is disabled in ffconf.h */
@@ -296,10 +310,16 @@ static int fatfs_vfs_unmount(FlxVfsNode_t *node) {
     FATFS *fs = (FATFS *)node->data;
     FRESULT res = f_mount(NULL, node->name, 0); 
     
+    /* Clear the block device mapping */
+    if (node->name && node->name[0] >= '0' && node->name[0] <= '9') {
+        int drive_num = node->name[0] - '0';
+        g_fatfs_blk_nodes[drive_num] = NULL;
+    }
+
     kfree(fs);
     node->data = NULL;
 
-	return fat_to_errno(res);
+    return fat_to_errno(res);
 }
 
 static int fatfs_vfs_truncate(FlxVfsNode_t *node, off_t length) {
@@ -339,33 +359,74 @@ static const FlxVfsOps_t fatfs_vfs_ops = {
 static int fatfs_mount_hook(const char *source, unsigned long mountflags, const void *data, FlxVfsNode_t **out_node) {
     if (!source || !out_node) return -EINVAL;
 
+    /* Resolve the source path to get the actual block device node */
+    const char *remainder = NULL;
+    FlxVfsNode_t *blk_node = flx_vfs_path_resolve(flx_vfs_root_get(), source, &remainder);
+
+    if (!blk_node || (remainder && *remainder != '\0')) {
+        return -ENODEV;
+    }
+
+    /* Translate UNIX block device path to FatFs logical drive string */
+    char logical_drive[4] = {0};
+    int drive_num = -1;
+
+    if (strcmp(source, "/dev/sd0") == 0) {
+        /* Standard auto-detect or full unpartitioned disk */
+        drive_num = 0;
+    } else if (strncmp(source, "/dev/sd0p", 9) == 0) {
+        /* Parse partitions: /dev/sd0p1, /dev/sd0p2, etc. */
+        int part_num = source[9] - '0';
+        if (part_num >= 1 && part_num <= 9) {
+            /* Map Partition 1 to logical drive "0:", Partition 2 to "1:", etc. */
+            drive_num = part_num - 1;
+        }
+    } else if (source[0] >= '0' && source[0] <= '9' && source[1] == ':' && source[2] == '\0') {
+        /* Allow direct FatFs logical drive strings (e.g. "0:", "1:") to support
+         * legacy mounting or future table-driven mapping (like /etc/fstab) */
+        drive_num = source[0] - '0';
+    }
+
+    if (drive_num >= 0 && drive_num <= 9) {
+        /* Format the FatFs logical drive string (e.g., "0:", "1:") */
+        logical_drive[0] = '0' + drive_num;
+        logical_drive[1] = ':';
+        logical_drive[2] = '\0';
+
+        /* Save the block node so diskio.c can read from it! */
+        g_fatfs_blk_nodes[drive_num] = blk_node;
+    } else {
+        /* If we don't recognize the block device/partition, reject the mount */
+        return -ENODEV;
+    }
+
     /* Allocate work area */
     FATFS *fs = kmalloc(sizeof(FATFS));
     if (!fs) return -ENOMEM;
 
-    /* Mount immediately (source = drive_id, e.g. "0:") */
-    FRESULT res = f_mount(fs, source, 1);
+    /* Mount immediately using the translated logical drive */
+    FRESULT res = f_mount(fs, logical_drive, 1);
     if (res != FR_OK) {
         kfree(fs);
         return fat_to_errno(res);
     }
 
-    /* Create the Root Node representing the SD Card */
+    /* Create the Root Node representing the mounted filesystem */
     FlxVfsNode_t *sd_node = kzalloc(sizeof(FlxVfsNode_t));
     if (!sd_node) {
-        f_mount(NULL, source, 0);
+        f_mount(NULL, logical_drive, 0);
         kfree(fs);
         return -ENOMEM;
     }
 
-    /* Copy the drive_id into the node name */
-    sd_node->name = kstrdup(source);
+    /* Copy the FatFs logical drive into the node name so f_open() can format paths correctly! */
+    sd_node->name = kstrdup(logical_drive);
     if (sd_node->name) {
         sd_node->kflags |= (FLX_VFS_KFLAG_ALLOCATED_NAME |
                             FLX_VFS_KFLAG_ALLOCATED_NODE |
                             FLX_VFS_KFLAG_OPAQUE_NODE);
     } else {
-        f_mount(NULL, source, 0);
+        f_mount(NULL, logical_drive, 0);
         kfree(fs);
         kfree(sd_node);
         return -ENOMEM;
@@ -380,8 +441,8 @@ static int fatfs_mount_hook(const char *source, unsigned long mountflags, const 
     return 0;
 }
 
-/* The filesystem definition */
-static FlxFsType_t fatfs_fs_type = {
+/* FIX 3: Wire the new unmount hook into your VFS registry struct */
+static FlxFsType_t fatfs_type = {
     .name = "fatfs",
     .mount = fatfs_mount_hook,
     .next = NULL
@@ -391,5 +452,5 @@ static FlxFsType_t fatfs_fs_type = {
  * @brief Register FatFs with the kernel. Call this exactly once during boot.
  */
 void fatfs_vfs_register(void) {
-    flx_vfs_register_fs(&fatfs_fs_type);
+    flx_vfs_register_fs(&fatfs_type);
 }

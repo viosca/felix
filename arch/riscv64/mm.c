@@ -1,5 +1,5 @@
 /**
- * @file mm.c
+ * @file arch/riscv64/mm.c
  * @brief RISC-V 64-bit physical memory allocation backends.
  */
 

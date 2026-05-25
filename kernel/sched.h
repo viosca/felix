@@ -42,7 +42,7 @@ struct sched_operations {
      * @param arg The argument passed into the start_func.
      * @return 0 on success, negative error code on failure.
      */
-    int (*thread_create)(void **handle, const char *name, size_t stack_size, sched_thread_func_t start_func, void *arg);
+    int (*thread_create)(void **handle, const char *name, size_t stack_size, int priority, sched_thread_func_t start_func, void *arg);
 
     /**
      * @brief Terminate the currently running thread.
@@ -88,10 +88,10 @@ extern const struct sched_operations *active_scheduler;
  * These allow your process.c to cleanly call sched_yield() instead of
  * constantly typing active_scheduler->yield().
  */
-
-static inline int sched_thread_create(void **handle, const char *name, size_t stack_size, sched_thread_func_t start_func, void *arg) {
+static inline int sched_thread_create(void **handle, const char *name, size_t stack_size, int priority, sched_thread_func_t start_func, void *arg)
+{
     if (active_scheduler && active_scheduler->thread_create)
-        return active_scheduler->thread_create(handle, name, stack_size, start_func, arg);
+        return active_scheduler->thread_create(handle, name, stack_size, priority, start_func, arg);
     return -1;
 }
 

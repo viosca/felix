@@ -31,7 +31,7 @@ void flx_ramfs_init(FlxRamFs_t *ramfs, const char *name, FlxVfsNode_t *parent);
  * @brief Internal helper to allocate a node inside a RAMFS instance.
  * Used by device drivers or internally by ramfs_mkdir.
  */
-int flx_ramfs_create_node(FlxRamFs_t *ramfs, const char *name, mode_t mode, dev_t dev_id, FlxVfsOps_t *ops);
+int flx_ramfs_create_node(FlxRamFs_t *ramfs, const char *name, mode_t mode, dev_t dev_id, const FlxVfsOps_t *ops);
 
 /**
  * @brief Internal helper to free a node from a RAMFS instance.

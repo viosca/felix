@@ -1,5 +1,5 @@
 /**
- * @file fatfs_vfs.h
+ * @file felix/fs/fatfs/fatfs_vfs.h
  * @brief Public interface for the FatFs VFS bridge.
  */
 

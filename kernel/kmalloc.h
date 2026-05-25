@@ -22,6 +22,14 @@ void *kmalloc(size_t size);
 void kfree(void *ptr);
 
 /**
+ * @brief Reallocate memory in kernel space.
+ * @param ptr Pointer to the previously allocated memory block.
+ * @param size New size in bytes.
+ * @return Pointer to the newly allocated memory, or NULL if it fails.
+ */
+void *krealloc(void *ptr, size_t size);
+
+/**
  * @brief Allocate zero-initialized memory in kernel space.
  * Equivalent to kmalloc() followed by memset(0).
  * @param size Number of bytes to allocate.

@@ -7,6 +7,7 @@
 #include <limits.h>
 #include <time.h>
 #include <sys/time.h>
+#include <errno.h>
 #include "fs/rootfs/bin/flx_fs_bin_cmds.h"
 #include "kernel/process.h"
 #include "kernel/binfmt.h"
@@ -110,8 +111,28 @@ int flx_fs_bin_cmd_help(int argc, char **argv) {
     printf("  Ctrl+K         Delete from cursor to end of line\n");
     printf("  Ctrl+L         Clear screen\n");
     printf("  Ctrl+C         Cancel current line\n");
-    printf("  Tab            Auto-complete (Coming soon!)\n");
+    printf("  Tab            Auto-complete\n");
     return 0;
+}
+
+FLX_BINFMT_CMD_SECTION(flx_fs_bin_cmd_mkdir)
+int flx_fs_bin_cmd_mkdir(int argc, char **argv) {
+    if (argc < 2) {
+        printf("Usage: mkdir <directory>...\n");
+        return 1;
+    }
+
+    int exit_code = 0;
+
+    for (int i = 1; i < argc; i++) {
+        /* Standard POSIX mkdir. Defaulting to 0777 permissions. */
+        if (mkdir(argv[i], 0777) < 0) {
+            printf("mkdir: cannot create directory '%s': %s\n", argv[i], strerror(errno));
+            exit_code = 1;
+        }
+    }
+
+    return exit_code;
 }
 
 FLX_BINFMT_CMD_SECTION(flx_fs_bin_cmd_pwd)

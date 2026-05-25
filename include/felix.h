@@ -1,7 +1,7 @@
 #ifndef FELIX_OS_H
 #define FELIX_OS_H
 
-#include "drivers/serial.h"
+#include "drivers/flx_serial_core.h"
 
 /**
  * @brief Bootstraps the core Felix OS subsystems (VFS, Process Table, etc.).

@@ -12,6 +12,7 @@
 #include <sys/types.h>
 #include "kernel/devices.h"
 #include "kernel/binfmt.h"
+#include "kernel/kmalloc.h"
 
 typedef struct FlxVfsNode FlxVfsNode_t;
 
@@ -163,6 +164,51 @@ int flx_vfs_rename(const char *oldpath, const char *newpath);
  * @return Pointer to the populated VFS Node, or NULL if the pool is full.
  */
 FlxVfsNode_t* flx_vfs_create_exec_node(const char *name, int (*main_func)(int argc, char **argv), size_t explicit_size, const void *start_ptr, const void *end_ptr);
+
+/* =========================================================================
+ * VFS Node Memory Management
+ * ========================================================================= */
+
+/**
+ * @brief Safely destructs a generic VFS node's internal union payload.
+ * Storage drivers must call this before freeing the node container.
+ */
+static inline void flx_vfs_node_cleanup(FlxVfsNode_t *node) {
+    if (!node) return;
+
+    /* Safely destruct the union payload (Only files have data pointers!) */
+    if (S_ISREG(node->mode) && node->data) {
+        kfree(node->data);
+        node->data = NULL;
+    }
+
+    /* Protect the CPU: Only free the name if it lives on the heap! */
+    if ((node->kflags & FLX_VFS_KFLAG_ALLOCATED_NAME) && node->name) {
+        kfree((void *)node->name);
+        node->name = NULL;
+    }
+}
+
+/**
+ * @brief Safely initializes a generic VFS node, handling internal union routing
+ * based on the POSIX file mode.
+ */
+static inline void flx_vfs_node_init_base(FlxVfsNode_t *node, const char *name, mode_t mode, uint32_t kflags, FlxVfsNode_t *parent, const FlxVfsOps_t *ops, dev_t dev_id) {
+    node->name = name;
+    node->mode = mode;
+    node->kflags = kflags; /* Inject the flags here! */
+    node->parent = parent;
+    node->ops = ops;
+    node->size = 0;
+
+    if (S_ISCHR(mode) || S_ISBLK(mode)) {
+        node->dev_id = dev_id;
+    } else if (S_ISDIR(mode)) {
+        node->dir.children = NULL;
+    } else {
+        node->data = NULL;
+    }
+}
 
 /* =========================================================================
  * VFS Filesystem Registry API

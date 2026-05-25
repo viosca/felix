@@ -91,7 +91,7 @@ void flx_proc_init_current(int pid) {
     flx_proc_setenv("PATH", "/bin", 1);
     flx_proc_setenv("PWD", "/", 1);
 }
-
+#if 0 // FIXME: remove
 void flx_proc_exit(void) {
     FlxProcPCB_t *pcb = get_current_pcb();
     if (pcb) {
@@ -107,7 +107,41 @@ void flx_proc_exit(void) {
     /* Safely destroy the FreeRTOS task */
     sched_thread_exit();
 }
+#endif
+void flx_proc_exit(void) {
+    FlxProcPCB_t *pcb = get_current_pcb();
+    if (pcb) {
+        /* Close all open file descriptors */
+        for (int i = 0; i < FLX_PROC_MAX_OPEN_FILES; i++) {
+            if (pcb->fds[i].in_use && pcb->fds[i].node) {
+                FlxVfsNode_t *node = pcb->fds[i].node;
 
+                /* Notify the specific driver (FATFS, UART, etc.) that the file is closing */
+                if (node->ops && node->ops->close) {
+                    node->ops->close(node);
+                }
+
+                pcb->fds[i].in_use = false;
+                pcb->fds[i].node = NULL;
+            }
+        }
+
+        /* Free C-Library context if the newlib stub allocated one */
+        if (pcb->clib_context) {
+            kfree(pcb->clib_context);
+        }
+
+        /* Safety First: Clear the TLS pointer BEFORE freeing the memory
+         * to prevent ISRs or context switches from grabbing a dangling pointer. */
+        sched_set_tls(NULL);
+
+        /* Free the PCB memory back to the kernel heap */
+        kfree(pcb);
+    }
+
+    /* Safely destroy the FreeRTOS task */
+    sched_thread_exit();
+}
 /* =========================================================================
  * File Descriptor Management
  * ========================================================================= */

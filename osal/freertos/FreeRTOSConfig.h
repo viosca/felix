@@ -71,7 +71,6 @@
 #ifndef FREERTOS_CONFIG_H
 #define FREERTOS_CONFIG_H
 
-
 /*-----------------------------------------------------------
  * Application specific definitions.
  *
@@ -92,7 +91,9 @@ extern uint32_t SystemCoreClock;
 #define configUSE_PREEMPTION			1
 #define configUSE_IDLE_HOOK				0
 #define configUSE_TICK_HOOK				0
-#define configCPU_CLOCK_HZ			( ( unsigned long ) 100000000 )
+//#define configCPU_CLOCK_HZ          ( ( unsigned long ) 100000000 )
+//#define configCPU_CLOCK_HZ          ( ( unsigned long ) 1000000 )
+#define configCPU_CLOCK_HZ          ( ( unsigned long ) 600000000 ) /* RISCV64 DISCO Physical CPU Speed */
 #define configTICK_CLOCK_HZ			( ( unsigned long ) 1000000 )
 #define configTICK_RATE_HZ			( ( TickType_t ) 1000 )
 #define configMAX_PRIORITIES		(31 )
@@ -119,6 +120,9 @@ extern uint32_t SystemCoreClock;
 
 /* The physical address of the MTIMECMP register in the CLINT */
 #define configMTIMECMP_BASE_ADDRESS     ( 0x02004000UL )
+
+/* Tell the RISC-V port exactly how fast the CLINT is running */
+#define configMTIME_BASE_CLOCK_HZ       ( 1000000UL ) /* Physical CLINT Speed */
 
 /* The size of the dedicated interrupt stack (in WORDS, not bytes) */
 #define configISR_STACK_SIZE_WORDS      ( 500 )

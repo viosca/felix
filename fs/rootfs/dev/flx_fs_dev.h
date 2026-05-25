@@ -8,8 +8,8 @@
 #include "kernel/vfs.h"
 
 int flx_fs_dev_init(void);
-int flx_fs_dev_register_chr(const char *name, int major, int minor, FlxVfsOps_t *ops);
-int flx_fs_dev_register_blk(const char *name, int major, int minor, FlxVfsOps_t *ops);
+int flx_fs_dev_register_chr(const char *name, int major, int minor, const FlxVfsOps_t *ops);
+int flx_fs_dev_register_blk(const char *name, int major, int minor, const FlxVfsOps_t *ops);
 int flx_fs_dev_unregister(const char *name);
 
 /* Retrieves the root node of the /dev filesystem so it can be attached to the tree */

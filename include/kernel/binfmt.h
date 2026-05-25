@@ -18,7 +18,7 @@
 #define FLX_BINFMT_TYPE_EXTERNAL 2
 
 
-typedef struct {
+typedef struct FlxLinkedExec {
     uint8_t magic[4];
     uint32_t type;
     size_t size;           /* Fixed size (used for embedded data/text files) */
@@ -28,7 +28,7 @@ typedef struct {
 } FlxLinkedExec_t;
 
 /* Format for standalone apps loaded from external storage */
-typedef struct {
+typedef struct FlxExternalExec {
     uint8_t  magic[4];       /* \x7f F L X */
     uint32_t type;           /* 0x02 for "External Offset" */
     uint32_t entry_offset;   /* Byte offset from file start to main() */

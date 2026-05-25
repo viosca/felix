@@ -19,11 +19,11 @@ int flx_fs_dev_init(void) {
     return 0;
 }
 
-int flx_fs_dev_register_chr(const char *name, int major, int minor, FlxVfsOps_t *ops) {
+int flx_fs_dev_register_chr(const char *name, int major, int minor, const FlxVfsOps_t *ops) {
     return flx_ramfs_create_node(&g_dev_fs, name, S_IFCHR | 0666, FLX_MAKEDEV(major, minor), ops);
 }
 
-int flx_fs_dev_register_blk(const char *name, int major, int minor, FlxVfsOps_t *ops) {
+int flx_fs_dev_register_blk(const char *name, int major, int minor, const FlxVfsOps_t *ops) {
     return flx_ramfs_create_node(&g_dev_fs, name, S_IFBLK | 0666, FLX_MAKEDEV(major, minor), ops);
 }
 

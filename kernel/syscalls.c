@@ -4,7 +4,7 @@
 #include "kernel/process.h"
 #include "kernel/time.h"
 #include "kernel/devices.h"
-#include "drivers/serial.h"
+#include "drivers/flx_serial_core.h"
 #include <string.h>
 #include <stddef.h>
 #include <sys/stat.h>
@@ -152,11 +152,21 @@ int sys_usleep(uint64_t usec) {
 /* =========================================================================
  * Memory Management System Calls
  * ========================================================================= */
-
+#if 0
 void *sys_sbrk(ptrdiff_t incr) {
     /* If we had Virtual Memory or process quotas, we would check them here
      * before asking the architecture to move the physical heap boundary */
     return arch_sbrk(incr);
+}
+#endif
+
+void *sys_sbrk(ptrdiff_t incr) {
+    (void)incr;
+    /* sbrk is obsolete in Felix OS. All C-library memory allocation
+     * is intercepted by the linker (--wrap=malloc) and routed directly
+     * to the FreeRTOS (or other OS's) heap via our OSAL. */
+    errno = ENOMEM;
+    return (void *)-1;
 }
 
 /* =========================================================================
@@ -418,7 +428,7 @@ int sys_ioctl(int fd, int request, void *arg) {
         FlxDev_t *dev = flx_dev_get(rdev & 0xFF);
         if (!dev) return -ENODEV;
 
-        int ret = serial_ioctl(dev, request, arg);
+        int ret = flx_serial_ioctl(dev, request, arg);
         return ret; /* Let the specific error (-EINVAL, etc.) bubble up! */
     }
 

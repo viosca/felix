@@ -12,7 +12,7 @@
 //#define FLX_PROC_MAX_PROCS 2
 
 #define FLX_PROC_PID_KERNEL 0
-#define FLX_PROC_PID_SHELL 1
+#define FLX_PROC_PID_INIT 1
 
 #define FLX_PROC_MAX_OPEN_FILES 32
 

@@ -1,5 +1,5 @@
 /**
- * @file mm.h
+ * @file arch/riscv64/include/mm.h
  * @brief RISC-V 64-bit Architecture Memory Management.
  * * Defines the low-level physical memory hooks required by the OS kernel.
  */

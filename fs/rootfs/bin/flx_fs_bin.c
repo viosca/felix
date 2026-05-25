@@ -20,6 +20,7 @@ FLX_BINFMT_EXTERN_BOUNDS(flx_fs_bin_cmd_echo);
 FLX_BINFMT_EXTERN_BOUNDS(flx_fs_bin_cmd_help);
 FLX_BINFMT_EXTERN_BOUNDS(flx_fs_bin_cmd_hexdump);
 FLX_BINFMT_EXTERN_BOUNDS(flx_fs_bin_cmd_ls);
+FLX_BINFMT_EXTERN_BOUNDS(flx_fs_bin_cmd_mkdir);
 FLX_BINFMT_EXTERN_BOUNDS(flx_fs_bin_cmd_pwd);
 FLX_BINFMT_EXTERN_BOUNDS(flx_fs_bin_cmd_which);
 FLX_BINFMT_EXTERN_BOUNDS(flx_fs_bin_cmd_tree);
@@ -34,6 +35,7 @@ FLX_BINFMT_DECLARE_CMD_PAYLOAD(payload_echo,   flx_fs_bin_cmd_echo,   flx_fs_bin
 FLX_BINFMT_DECLARE_CMD_PAYLOAD(payload_help,   flx_fs_bin_cmd_help,   flx_fs_bin_cmd_help);
 FLX_BINFMT_DECLARE_CMD_PAYLOAD(payload_hexdump,  flx_fs_bin_cmd_hexdump,  flx_fs_bin_cmd_hexdump);
 FLX_BINFMT_DECLARE_CMD_PAYLOAD(payload_ls,     flx_fs_bin_cmd_ls,     flx_fs_bin_cmd_ls);
+FLX_BINFMT_DECLARE_CMD_PAYLOAD(payload_mkdir,  flx_fs_bin_cmd_mkdir,  flx_fs_bin_cmd_mkdir);
 FLX_BINFMT_DECLARE_CMD_PAYLOAD(payload_pwd,    flx_fs_bin_cmd_pwd,    flx_fs_bin_cmd_pwd);
 FLX_BINFMT_DECLARE_CMD_PAYLOAD(payload_which,  flx_fs_bin_cmd_which,  flx_fs_bin_cmd_which);
 FLX_BINFMT_DECLARE_CMD_PAYLOAD(payload_tree,   flx_fs_bin_cmd_tree,   flx_fs_bin_cmd_tree);
@@ -52,6 +54,7 @@ FLX_VFS_DECLARE_NODE(node_help,     "help",    &node_bin, &payload_help);
 FLX_VFS_DECLARE_NODE(node_hexdump,  "hexdump", &node_bin, &payload_hexdump);
 FLX_VFS_DECLARE_NODE(node_ls,       "ls",      &node_bin, &payload_ls);
 FLX_VFS_DECLARE_NODE(node_ll,       "ll",      &node_bin, &payload_ls); // ALIAS
+FLX_VFS_DECLARE_NODE(node_mkdir,    "mkdir",   &node_bin, &payload_mkdir);
 FLX_VFS_DECLARE_NODE(node_pwd,      "pwd",     &node_bin, &payload_pwd);
 FLX_VFS_DECLARE_NODE(node_which,    "which",   &node_bin, &payload_which);
 FLX_VFS_DECLARE_NODE(node_tree,     "tree",    &node_bin, &payload_tree);
@@ -69,6 +72,7 @@ static FlxVfsNode_t *bin_children[] = {
     &node_hexdump,
     &node_ls,
     &node_ll,
+    &node_mkdir,
     &node_pwd,
     &node_which,
     &node_tree,

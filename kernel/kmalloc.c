@@ -7,6 +7,7 @@
 #include <stdlib.h> /* For underlying malloc/free (temporary) */
 #include <string.h> /* For memset */
 
+#if 0
 /* TODO: Eventually replace stdlib malloc with a true kernel heap
  * (e.g., a slab allocator or buddy allocator) tied directly to
  * the physical page allocator. */
@@ -28,6 +29,11 @@ void kfree(void *ptr) {
     /* Temporary wrapper around standard library free */
     free(ptr);
 }
+#endif
+
+/* kmalloc, kfree, and krealloc are deliberately missing from this file!
+ * They are implemented by the active OSAL backend (e.g., freertos_sched.c)
+ * so the kernel remains OS-agnostic. */
 
 void *kzalloc(size_t size) {
     void *ptr = kmalloc(size);

@@ -7,13 +7,19 @@
 #include "kernel/vfs.h"
 #include "kernel/klog.h"
 #include "drivers/sdcard_hal.h"
+#include "kernel/part_mbr.h" /* Extracted MBR Parsing Subsystem */
+#include "kernel/part_gpt.h" /* Extracted GPT Parsing Subsystem */
+#include "kernel/part_types.h" /* 64-bit Partition Types */
 #include <stdio.h>
 #include <errno.h>
+#include <stdbool.h>
 #include "fs/rootfs/dev/flx_fs_dev.h"
 #include "kernel/sched.h"
+#include "mpfs_hal/mss_hal.h" /* To ensure read_csr is available */
 
 #define DEBOUNCE_TICKS_TARGET 10
 #define SD_SECTOR_SIZE        512
+#define MAX_PARTITIONS        8
 
 typedef enum {
     STATE_REMOVED = 0,
@@ -25,6 +31,7 @@ typedef struct {
     BlkDevState_t state;
     BlkDevState_t target_state;
     int debounce_counter;
+    FlxPartition_t partitions[MAX_PARTITIONS]; /* Track up to 8 slots for MBR/GPT */
 } BlkDevTracker_t;
 
 static BlkDevTracker_t blk_devices[FLX_BLK_DEV_MAX];
@@ -34,16 +41,33 @@ static BlkDevTracker_t blk_devices[FLX_BLK_DEV_MAX];
  * ========================================================================= */
 
 static ssize_t sd_blk_read(FlxFile_t *file, void *buf, size_t count) {
-    /* For a raw block device without a caching layer, we enforce
-     * strict 512-byte sector alignment. */
     if ((count % SD_SECTOR_SIZE != 0) || (file->offset % SD_SECTOR_SIZE != 0)) {
         return -EINVAL;
     }
 
-    uint32_t sector = file->offset / SD_SECTOR_SIZE;
+    /* MAGIC: Extract the Minor number from the VFS dev_id */
+    int minor = file->node->dev_id & 0xFF;
+
+    uint64_t lba_offset = 0;
+    uint64_t max_sectors = 0xFFFFFFFFFFFFFFFFULL; /* Assume infinite if raw drive */
+
+    /* If Minor is 1-MAX_PARTITIONS, it's a partition! Look up the offset. */
+    if (minor >= 1 && minor <= MAX_PARTITIONS) {
+        lba_offset = blk_devices[FLX_BLK_DEV_SDCARD0].partitions[minor - 1].lba_start;
+        max_sectors = blk_devices[FLX_BLK_DEV_SDCARD0].partitions[minor - 1].sector_count;
+    }
+
+    uint64_t sector = file->offset / SD_SECTOR_SIZE;
     uint32_t num_sectors = count / SD_SECTOR_SIZE;
 
-    if (sdcard_hal_read_blocks((uint8_t *)buf, sector, num_sectors) == 0) {
+    /* Prevent reading past the end of a partition */
+    if (minor >= 1 && minor <= MAX_PARTITIONS && (sector + num_sectors > max_sectors)) {
+        return -EINVAL;
+    }
+
+    /* Add the partition LBA offset to the physical read request! */
+    /* Note: Casting to uint32_t for now until Microchip HAL is upgraded to 64-bit */
+    if (sdcard_hal_read_blocks((uint8_t *)buf, (uint32_t)(lba_offset + sector), num_sectors) == 0) {
         file->offset += count;
         return count;
     }
@@ -55,40 +79,159 @@ static ssize_t sd_blk_write(FlxFile_t *file, const void *buf, size_t count) {
         return -EINVAL;
     }
 
-    uint32_t sector = file->offset / SD_SECTOR_SIZE;
+    int minor = file->node->dev_id & 0xFF;
+
+    uint64_t lba_offset = 0;
+    uint64_t max_sectors = 0xFFFFFFFFFFFFFFFFULL;
+
+    if (minor >= 1 && minor <= MAX_PARTITIONS) {
+        lba_offset = blk_devices[FLX_BLK_DEV_SDCARD0].partitions[minor - 1].lba_start;
+        max_sectors = blk_devices[FLX_BLK_DEV_SDCARD0].partitions[minor - 1].sector_count;
+    }
+
+    uint64_t sector = file->offset / SD_SECTOR_SIZE;
     uint32_t num_sectors = count / SD_SECTOR_SIZE;
 
-    if (sdcard_hal_write_blocks((const uint8_t *)buf, sector, num_sectors) == 0) {
+    if (minor >= 1 && minor <= MAX_PARTITIONS && (sector + num_sectors > max_sectors)) {
+        return -EINVAL;
+    }
+
+    if (sdcard_hal_write_blocks((const uint8_t *)buf, (uint32_t)(lba_offset + sector), num_sectors) == 0) {
         file->offset += count;
         return count;
     }
     return -EIO;
 }
 
-/* VFS Operations table for the raw /dev/sd0 node */
 static FlxVfsOps_t sd_blk_ops = {
     .read = sd_blk_read,
     .write = sd_blk_write,
-    /* Open/Close/Ioctl can be NULL or stubbed depending on your VFS architecture */
 };
 
+/* =========================================================================
+ * Hotplug Subsystem
+ * ========================================================================= */
+
+/* Hardware-specific read wrapper for the generic MBR/GPT parsers */
+static int sd_read_sector_cb(uint64_t lba, uint8_t *buf) {
+    return sdcard_hal_read_blocks(buf, (uint32_t)lba, 1);
+}
+
+static void handle_sdcard_insertion(bool auto_mount) {
+    kprintf("\r\n[Kernel] SD Card insertion detected. Waking hardware...\n");
+
+    /* 0. Wake hardware if the state was lost */
+    if (sdcard_hal_status() == SDCARD_HAL_STATUS_NOINIT) {
+        if (sdcard_hal_init() != 0) {
+            kprintf("[Kernel] Hardware init failed. Retrying in 500ms...\n");
+
+            /* CRITICAL FIX: The hardware failed. We cannot stay in STATE_PRESENT.
+             * Roll back to DEBOUNCING to force the daemon loop to retry! */
+            blk_devices[FLX_BLK_DEV_SDCARD0].state = STATE_DEBOUNCING;
+            blk_devices[FLX_BLK_DEV_SDCARD0].debounce_counter = 50; /* 500ms delay */
+
+            /* Force interrupts back on! The Microchip HAL reset likely killed them. */
+            sdcard_hal_irq_enable();
+            return;
+        }
+    }
+
+    /* 1. Register the raw drive so the VFS knows it exists */
+    if (flx_fs_dev_register_blk("sd0", 179, 0, &sd_blk_ops) != 0) {
+        kprintf("[Kernel] Failed to register /dev/sd0 in VFS.\n");
+        return;
+    }
+    kprintf("[Kernel] Block device /dev/sd0 created.\n");
+
+    /* 2. Execute the parsers: Try GPT first, then fallback to MBR! */
+    if (part_parse_gpt("sd0", 179, &sd_blk_ops, blk_devices[FLX_BLK_DEV_SDCARD0].partitions, MAX_PARTITIONS, sd_read_sector_cb) != 0) {
+        kprintf("[Kernel] No GPT found, falling back to MBR...\n");
+        part_parse_mbr("sd0", 179, &sd_blk_ops, blk_devices[FLX_BLK_DEV_SDCARD0].partitions, sd_read_sector_cb);
+    }
+
+    /* 3. Auto-Mount the discovered partitions */
+    for (int i = 0; i < MAX_PARTITIONS; i++) {
+        /* If the parser found a valid partition type, mount it! */
+        if (blk_devices[FLX_BLK_DEV_SDCARD0].partitions[i].type != 0x00) {
+            char dev_path[32], mnt_path[32];
+            snprintf(dev_path, sizeof(dev_path), "/dev/sd0p%d", i + 1);
+            snprintf(mnt_path, sizeof(mnt_path), "/mnt/sd0p%d", i + 1);
+
+            /* Create the dynamic mount point directory in the RAMFS */
+            sys_mkdir(mnt_path, 0755);
+
+            /* Route the mount through the VFS! */
+            int res = sys_mount(dev_path, mnt_path, "fatfs", 0, NULL);
+            if (res == 0) {
+                kprintf("[Kernel] FAT filesystem auto-mounted at %s\n", mnt_path);
+            } else {
+                kprintf("[Kernel] Auto-mount failed for %s (Error %d)\n", dev_path, res);
+                sys_rmdir(mnt_path);
+            }
+        }
+    }
+}
+
+static void handle_sdcard_removal(void) {
+    kprintf("\r\n[Kernel] SD Card surprise removal detected. Cleaning up...\n");
+
+    /* 1. Unmount and destroy partition nodes */
+    for (int i = 0; i < MAX_PARTITIONS; i++) {
+        if (blk_devices[FLX_BLK_DEV_SDCARD0].partitions[i].type != 0x00) {
+            char mnt_path[32];
+            char dev_name[16];
+
+            snprintf(mnt_path, sizeof(mnt_path), "/mnt/sd0p%d", i + 1);
+            snprintf(dev_name, sizeof(dev_name), "sd0p%d", i + 1);
+
+            /* VFS Teardown */
+            sys_umount(mnt_path);
+            sys_rmdir(mnt_path);
+
+            /* Block Manager Teardown */
+            flx_fs_dev_unregister(dev_name);
+
+            /* Clear the state tracker */
+            blk_devices[FLX_BLK_DEV_SDCARD0].partitions[i].type = 0x00;
+        }
+    }
+
+    /* 2. Unregister the raw drive */
+    flx_fs_dev_unregister("sd0");
+
+    /* 3. Hardware teardown */
+    sdcard_hal_deinit();
+
+    kprintf("[Kernel] Hardware secured. SD Card destroyed.\n");
+}
 
 /* =========================================================================
  * The OS Worker (Hotplug Logic)
  * ========================================================================= */
 
 void flx_blk_manager_init(void) {
+    /* CRITICAL FIX: Prevent double-initialization!
+     * Your boot logs show this is being called twice, which was wiping out
+     * the debouncing state and killing the hotplug engine. */
+    static bool is_initialized = false;
+    if (is_initialized) return;
+    is_initialized = true;
+
+    kprintf("[Kernel] Initializing Block Manager...\n");
+
+    /* Initialize all device tracking states to REMOVED */
     for (int i = 0; i < FLX_BLK_DEV_MAX; i++) {
         blk_devices[i].state = STATE_REMOVED;
+        blk_devices[i].target_state = STATE_REMOVED;
         blk_devices[i].debounce_counter = 0;
+        /* Clear all partition slots */
+        for(int j=0; j < MAX_PARTITIONS; j++) blk_devices[i].partitions[j].type = 0x00;
     }
 
-    /* Boot up the hardware interrupts to watch for insertions */
-    sdcard_hal_irq_enable();
-
-    /* Safely trigger a fake event on boot just in case the card
-     * was already inserted before the OS powered on! */
-    flx_blk_manager_push_event(FLX_BLK_DEV_SDCARD0, FLX_BLK_EVENT_STATE_CHANGE);
+    /* Kickstart the initial probe right here, so the daemon picks it up
+     * as soon as it starts ticking. */
+    blk_devices[FLX_BLK_DEV_SDCARD0].state = STATE_DEBOUNCING;
+    blk_devices[FLX_BLK_DEV_SDCARD0].debounce_counter = 5;
 }
 
 void flx_blk_manager_push_event(FlxBlkDev_t dev, FlxBlkEvent_t event) {
@@ -100,52 +243,7 @@ void flx_blk_manager_push_event(FlxBlkDev_t dev, FlxBlkEvent_t event) {
     }
 }
 
-static void handle_sdcard_insertion(void) {
-    kprintf("[Kernel] SD Card insertion detected. Waking hardware...\n");
-
-    if (sdcard_hal_init() == 0) {
-        /* POSIX standard major number for MMC block devices is 179 */
-        if (flx_fs_dev_register_blk("sd0", 179, 0, &sd_blk_ops) == 0) {
-            kprintf("[Kernel] Block device /dev/sd0 created.\n");
-
-            /* --- Auto-Mount the FAT Filesystem --- */
-            /* 1. Ensure the mount point directory exists */
-            sys_mkdir("/mnt", 0755);
-            sys_mkdir("/mnt/sd0", 0755);
-
-            /* 2. Attach FatFs ("0:") to the new mount point */
-            if (sys_mount("0:", "/mnt/sd0", "fatfs", 0, NULL) == 0) {
-                kprintf("[Kernel] FAT filesystem auto-mounted at /mnt/sd0\n");
-            } else {
-                kprintf("[Kernel] Auto-mount failed. Ready for manual mount.\n");
-            }
-        } else {
-            kprintf("[Kernel] Failed to register /dev/sd0 in VFS.\n");
-        }
-    } else {
-        kprintf("[Kernel] Failed to initialize SD Card hardware.\n");
-    }
-}
-
-static void handle_sdcard_removal(void) {
-//    printf("[Kernel] SD Card surprise removal detected. Cleaning up...\n");
-
-    /* 1. Force Unmount */
-    sys_umount("/mnt/sd0");
-
-    /* 2. Unregister the raw block device */
-    flx_fs_dev_unregister("sd0");
-
-    /* 3. Hardware teardown */
-    sdcard_hal_deinit();
-
-    kprintf("[Kernel] Hardware secured. /dev/sd0 destroyed.\n");
-}
-
 void flx_blk_manager_tick(void) {
-    static volatile int throttle = 0;
-    //if (++throttle % 50000 != 0) return;
-
     for (int i = 0; i < FLX_BLK_DEV_MAX; i++) {
         if (blk_devices[i].state == STATE_DEBOUNCING) {
 
@@ -156,12 +254,16 @@ void flx_blk_manager_tick(void) {
 
                 if (i == FLX_BLK_DEV_SDCARD0) {
                     if (status == SDCARD_HAL_STATUS_NOINIT || status == SDCARD_HAL_STATUS_READY) {
-                        blk_devices[i].state = STATE_PRESENT;
-                        handle_sdcard_insertion();
+                        if (blk_devices[i].state != STATE_PRESENT) {
+                            blk_devices[i].state = STATE_PRESENT;
+                            handle_sdcard_insertion(true);
+                        }
                     }
                     else if (status == SDCARD_HAL_STATUS_NODISK) {
-                        blk_devices[i].state = STATE_REMOVED;
-                        handle_sdcard_removal();
+                        if (blk_devices[i].state != STATE_REMOVED) {
+                            blk_devices[i].state = STATE_REMOVED;
+                            handle_sdcard_removal();
+                        }
                     }
                     sdcard_hal_irq_enable();
                 }
@@ -172,11 +274,12 @@ void flx_blk_manager_tick(void) {
 
 void blk_manager_daemon_task(void *arg) {
     (void)arg;
-    while(1) {
-        /* Tick the block manager */
-        flx_blk_manager_tick();
 
-        /* Sleep for 10ms, then wake up and tick again */
+    /* Removed the local kickstart from here to prevent race conditions.
+     * The state machine is now primed safely during flx_blk_manager_init. */
+
+    while(1) {
+        flx_blk_manager_tick();
         sched_sleep_ms(10);
     }
 }

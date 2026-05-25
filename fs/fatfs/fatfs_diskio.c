@@ -1,19 +1,27 @@
-/*-----------------------------------------------------------------------*/
+/**
+ * @file felix/fs/fatfs/fatfs_diskio.c
+ */
+/*----------------------------------------------------------------------*/
 /* Low level disk I/O module for Felix OS                                */
 /*-----------------------------------------------------------------------*/
 
 /* 1. MUST include ff.h first to get BYTE, WORD, DWORD, LBA_t types */
+#define DIR FF_DIR
+/* 1. MUST include ff.h first to get BYTE, WORD, DWORD, LBA_t types */
 #include "ff.h"
+#undef DIR
 
 /* 2. Then include the interface contract */
 #include "diskio.h"
 
 /* 3. Include our OS-level Hardware Abstraction Layer */
 #include "drivers/sdcard_hal.h"
+#include "kernel/vfs.h"
 
 /* Physical drive number mapped to the SD Card */
 #define DEV_MMC     0
 
+extern FlxVfsNode_t* fatfs_get_blk_node(BYTE pdrv);
 
 /*-----------------------------------------------------------------------*/
 /* Inidialize a Drive                                                    */
@@ -22,16 +30,14 @@ DSTATUS disk_initialize (
     BYTE pdrv               /* Physical drive nmuber to identify the drive */
 )
 {
-    if (pdrv != DEV_MMC) return STA_NOINIT;
-
-    /* Call the HAL to initialize the hardware */
-    if (sdcard_hal_init() != 0) {
-        return STA_NOINIT;
+    /* The Block Manager handles physical initialization.
+     * If the node exists in our translation table, it's ready to go. */
+    if (fatfs_get_blk_node(pdrv) != NULL) {
+        return 0;
     }
 
-    return 0; /* Return 0 for success (Disk is initialized) */
+    return STA_NOINIT;
 }
-
 
 /*-----------------------------------------------------------------------*/
 /* Get Drive Status                                                      */
@@ -40,15 +46,14 @@ DSTATUS disk_status (
     BYTE pdrv               /* Physical drive nmuber to identify the drive */
 )
 {
-    if (pdrv != DEV_MMC) return STA_NOINIT;
+    /* As long as the VFS node exists, the disk is "ready" from FatFs's perspective */
+    if (fatfs_get_blk_node(pdrv) != NULL) {
+        return 0;
+    }
 
-    int status = sdcard_hal_status();
-
-    if (status == SDCARD_HAL_STATUS_NODISK) return STA_NODISK;
-    if (status == SDCARD_HAL_STATUS_NOINIT) return STA_NOINIT;
-
-    return 0; /* Return 0 for success (Disk is ready) */
+    return STA_NOINIT;
 }
+
 
 
 /*-----------------------------------------------------------------------*/
@@ -61,15 +66,23 @@ DRESULT disk_read (
     UINT count      /* Number of sectors to read */
 )
 {
-    if (pdrv != DEV_MMC) return RES_PARERR;
+    FlxVfsNode_t *blk_node = fatfs_get_blk_node(pdrv);
+    if (!blk_node) return RES_NOTRDY;
 
-    /* Pass the buffer and sector data down to the HAL */
-    if (sdcard_hal_read_blocks((uint8_t *)buff, (uint32_t)sector, (uint32_t)count) == 0) {
+    /* Route the read through the VFS!
+     * The Block Manager will automatically add the partition LBA offset. */
+    off_t byte_offset = (off_t)sector * 512;
+    size_t byte_count = (size_t)count * 512;
+
+    ssize_t bytes_read = flx_vfs_read(blk_node, buff, byte_count, byte_offset);
+
+    if (bytes_read == byte_count) {
         return RES_OK;
     }
 
     return RES_ERROR;
 }
+
 
 
 /*-----------------------------------------------------------------------*/
@@ -82,10 +95,16 @@ DRESULT disk_write (
     UINT count          /* Number of sectors to write */
 )
 {
-    if (pdrv != DEV_MMC) return RES_PARERR;
+    FlxVfsNode_t *blk_node = fatfs_get_blk_node(pdrv);
+    if (!blk_node) return RES_NOTRDY;
 
-    /* Pass the buffer and sector data down to the HAL */
-    if (sdcard_hal_write_blocks((const uint8_t *)buff, (uint32_t)sector, (uint32_t)count) == 0) {
+    /* Route the write through the VFS! */
+    off_t byte_offset = (off_t)sector * 512;
+    size_t byte_count = (size_t)count * 512;
+
+    ssize_t bytes_written = flx_vfs_write(blk_node, buff, byte_count, byte_offset);
+
+    if (bytes_written == byte_count) {
         return RES_OK;
     }
 

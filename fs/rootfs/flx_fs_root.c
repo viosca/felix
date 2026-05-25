@@ -7,7 +7,7 @@
 #include "fs/rootfs/etc/flx_fs_etc.h"
 #include "fs/rootfs/test/flx_fs_test.h"
 
-#define FLX_FS_ROOTFS_MAX_ROOT_MOUNTS 8
+#define FLX_FS_ROOTFS_MAX_ROOT_MOUNTS 16
 
 /* The physical storage for the root directory */
 static FlxVfsNode_t *root_children[FLX_FS_ROOTFS_MAX_ROOT_MOUNTS + 1];

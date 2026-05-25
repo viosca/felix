@@ -1,5 +1,5 @@
 /**
- * @file freertos_sched.c
+ * @file felix/osal/freertos/freertos_sched.c
  * @brief FreeRTOS Implementation of the Scheduler Abstraction Layer (SAL)
  */
 
@@ -12,87 +12,11 @@
 #include "semphr.h"
 #include <stdio.h>
 
-/* Add this to the top of freertos_sched.c with your other includes */
 extern void freertos_risc_v_trap_handler(void);
 
 /* =========================================================================
  * FreeRTOS Wrapper Functions
  * ========================================================================= */
-/* =========================================================================
- * FreeRTOS Diagnostic Hooks
- * ========================================================================= */
-
-void vApplicationMallocFailedHook(void) {
-    /* Called if pvPortMalloc() fails to allocate memory from the FreeRTOS heap. */
-    printf("\r\n[FreeRTOS PANIC] Out of Heap Memory!\r\n");
-    fflush(stdout);
-
-    /* ebreak triggers the RISC-V debugger. If no debugger, it halts. */
-    __asm__ volatile("ebreak");
-    while(1);
-}
-
-void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName) {
-    (void)xTask; /* Suppress unused parameter warning */
-
-    /* Called if a task writes past the end of its allocated stack space. */
-    printf("\r\n[FreeRTOS PANIC] Stack Overflow detected in task: %s\r\n", pcTaskName);
-    fflush(stdout);
-
-    __asm__ volatile("ebreak");
-    while(1);
-}
-
-/* =========================================================================
- * RISC-V Specific Exception Catchers
- * ========================================================================= */
-
-
-/* Global variable so the debugger can easily see it */
-volatile uint64_t debug_mcause = 0;
-volatile uint64_t debug_mie = 0;
-volatile uint64_t debug_mip = 0;
-
-extern void handle_m_ext_interrupt(void);
-extern void handle_m_soft_interrupt(void);
-
-void __attribute__((used)) freertos_risc_v_application_interrupt_handler(uintptr_t mcause) {
-    /* Strip the highest bit to get the actual exception code */
-    uintptr_t cause_code = mcause & 0x7FFFFFFFFFFFFFFF;
-
-    if (cause_code == 11) {
-        /* 11 = Machine External Interrupt (PLIC).
-         * The UART or SD Card is shouting. Let the Microchip HAL handle it! */
-        handle_m_ext_interrupt();
-    }
-    else if (cause_code == 3) {
-        /* 3 = Machine Software Interrupt.
-         * Hart-to-Hart communication. Let the Microchip HAL handle it! */
-        handle_m_soft_interrupt();
-    }
-    else {
-        /* If it's anything else, we have a catastrophic failure. Halt safely. */
-        __asm__ volatile("csrci mstatus, 8");
-        //printf("\r\n\r\n[KERNEL PANIC] Unknown Hardware Interrupt: %llu\r\n", (unsigned long long)cause_code);
-        __asm__ volatile("ebreak");
-        while(1);
-    }
-}
-void __attribute__((used)) freertos_risc_v_application_exception_handler(uintptr_t mcause) {
-    /* 1. Disable all interrupts immediately */
-    __asm__ volatile("csrci mstatus, 8");
-
-    /* 2. Save the exact state of the crime scene */
-    debug_mcause = mcause;
-    __asm__ volatile("csrr %0, mie" : "=r"(debug_mie));
-    __asm__ volatile("csrr %0, mip" : "=r"(debug_mip));
-
-    /* 3. Halt the debugger safely */
-    __asm__ volatile("ebreak");
-
-    /* 4. Infinite loop so it NEVER re-enters */
-    while(1);
-}
 
 static void freertos_critical_enter(void) {
     taskENTER_CRITICAL();
@@ -108,23 +32,34 @@ static int freertos_init(void) {
     return 0;
 }
 
-static int freertos_thread_create(void **handle, const char *name, size_t stack_bytes, sched_thread_func_t start_func, void *arg) {
+//static int freertos_thread_create(void **handle, const char *name, size_t stack_bytes, sched_thread_func_t start_func, void *arg)
+static int freertos_thread_create(void **handle, const char *name, size_t stack_bytes, int priority, sched_thread_func_t start_func, void *arg)
+{
     TaskHandle_t rtos_handle = NULL;
 
     /* CRITICAL TRANSLATION:
      * FreeRTOS expects stack size in WORDS (StackType_t), not BYTES!
      * On RISC-V 64-bit (PolarFire), a word is 8 bytes.
      * If ToyBox asks for 8192 bytes, we must ask FreeRTOS for 1024 words. */
-    uint32_t stack_words = stack_bytes / sizeof(StackType_t);
+    configSTACK_DEPTH_TYPE stack_words = stack_bytes / sizeof(StackType_t);
+
+    /* We map Felix's generic priority directly to FreeRTOS.
+     * Ensure the requested priority doesn't exceed configMAX_PRIORITIES - 1 */
+    if (priority >= configMAX_PRIORITIES) {
+        priority = configMAX_PRIORITIES - 1;
+    }
+    if (priority < tskIDLE_PRIORITY) {
+        priority = tskIDLE_PRIORITY;
+    }
 
     /* We map Felix's generic function pointer directly to FreeRTOS's TaskFunction_t.
-     * Defaulting to priority 1 (just above idle). */
+    * Defaulting to priority 1 (just above idle). */
     BaseType_t res = xTaskCreate(
         (TaskFunction_t)start_func,
         name,
         stack_words,
         arg,
-        tskIDLE_PRIORITY + 1,
+        priority,
         &rtos_handle
     );
 

@@ -1,5 +1,5 @@
 /**
- * @file timer.h
+ * @file arch/riscv64/include/timer.h
  * @brief RISC-V 64-bit Architecture Timer Hook.
  */
 

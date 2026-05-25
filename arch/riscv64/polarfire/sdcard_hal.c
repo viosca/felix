@@ -52,7 +52,7 @@ int sdcard_hal_init(void) {
 
     /* The 50ms Wake-Up Retry Logic! */
     if (status != MSS_MMC_INIT_SUCCESS) {
-        kprintf("[HAL] First init failed (%d), waiting 50ms for level shifter...\n", status);
+        kprintf("[HAL] First init failed (%d), waiting 50ms for level shifter...\r\n", status);
         
         /* Reset the MMC block so the hardware state machine is clean (Matches HSS mmc_reset_block) */
         mss_config_clk_rst(MSS_PERIPH_EMMC, hart_id, PERIPHERAL_OFF);
@@ -71,7 +71,7 @@ int sdcard_hal_init(void) {
     }
 
     if (status != MSS_MMC_INIT_SUCCESS) {
-        kprintf("[HAL] MSS_MMC_init fatally failed with status: %d\n", status);
+        kprintf("[HAL] MSS_MMC_init fatally failed with status: %d\r\n", status);
         s_card_initialized = 0;
         return -1;
     }
@@ -88,6 +88,19 @@ int sdcard_hal_init(void) {
 int sdcard_hal_deinit(void) {
     s_card_initialized = 0;
     return 0;
+}
+
+void sdcard_hal_clear_interrupts(void) {
+    MMC->SRS12 = (SRS12_CARD_INSERTION | SRS12_CARD_REMOVAL);
+}
+
+int sdcard_hal_is_inserted(void) {
+    /* Ensure the MMC peripheral clock is active to read the hardware register */
+    uint8_t hart_id = (uint8_t)read_csr(mhartid);
+    mss_config_clk_rst(MSS_PERIPH_EMMC, hart_id, PERIPHERAL_ON);
+
+    /* Return 1 if physically inserted, 0 if not */
+    return (MMC->SRS09 & SRS9_CARD_INSERTED) ? 1 : 0;
 }
 
 int sdcard_hal_status(void) {
@@ -178,7 +191,6 @@ int sdcard_hal_ioctl(int cmd, void *buff) {
             return -1;
     }
 }
-
 /* -------------------------------------------------------------------------
  * Hardware Interrupt Control (Satisfying the HAL Contract)
  * ------------------------------------------------------------------------- */
@@ -217,10 +229,8 @@ void sdcard_hal_irq_enable(void) {
         s_pads_configured = 1;
     }
 
-    /* The mechanical switch bounces. Even while the PLIC signal (SRS14) 
-     * is masked during debounce, the hardware continues to latch the bounces into SRS12. 
-     * We MUST clear the stale bits here so it doesn't instantly fire when unmasked. */
-    MMC->SRS12 = (SRS12_CARD_INSERTION | SRS12_CARD_REMOVAL);
+    /* Clear stale interrupts before unmasking the line */
+    sdcard_hal_clear_interrupts();
 
     /* Route Insertion and Removal events to the Main Interrupt */
     MMC->SRS13 |= (SRS12_CARD_INSERTION | SRS12_CARD_REMOVAL);
@@ -237,6 +247,7 @@ void sdcard_hal_irq_disable(void) {
     /* Mask ONLY the hotplug signals so we don't blind the SDMA interrupts! */
     MMC->SRS14 &= ~(SRS12_CARD_INSERTION | SRS12_CARD_REMOVAL);
 }
+
 
 /* =========================================================================
  * MICROCHIP HAL WEAK ISR OVERRIDES (Via -include Eclipse Hack)

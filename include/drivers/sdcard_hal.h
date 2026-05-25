@@ -29,6 +29,8 @@ int sdcard_hal_ioctl(int cmd, void *buff);
 /* Hardware IRQ control for the agnostic worker to use */
 void sdcard_hal_irq_enable(void);
 void sdcard_hal_irq_disable(void);
+void sdcard_hal_clear_interrupts(void);
+int sdcard_hal_is_inserted(void);
 
 /* Called by the OS trap handler when the PLIC triggers an MMC interrupt */
 void sdcard_hal_handle_irq(void);

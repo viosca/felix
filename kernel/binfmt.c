@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stddef.h>
+#include "kernel/klog.h"
 #include "kernel/binfmt.h"
 
 int flx_binfmt_load(void *file_data, int argc, char **argv) {
@@ -8,16 +9,16 @@ int flx_binfmt_load(void *file_data, int argc, char **argv) {
 
     uint8_t *bytes = (uint8_t *)file_data;
 
-    /* 1. Verify Magic Number */
+    /* Verify Magic Number */
     if (bytes[0] != FLX_MAGIC_0 || bytes[1] != FLX_MAGIC_1 ||
         bytes[2] != FLX_MAGIC_2 || bytes[3] != FLX_MAGIC_3) {
 
-        /* In the future, we can check for '#!' here for shell scripts! */
-        printf("exec: unrecognized executable format\n");
+        /* In the future, we can check for '#!' here for shell scripts */
+        kprintf("exec: unrecognized executable format\n");
         return -1;
     }
 
-    /* 2. Dispatch based on Payload Type */
+    /* Dispatch based on Payload Type */
     if (bytes[4] == FLX_BINFMT_TYPE_LINKED) {
 
         /* Internal OS Function - Just cast the absolute pointer and jump! */
@@ -39,6 +40,6 @@ int flx_binfmt_load(void *file_data, int argc, char **argv) {
         }
     }
 
-    printf("exec: invalid payload\n");
+    kprintf("exec: invalid payload\n");
     return -1;
 }
