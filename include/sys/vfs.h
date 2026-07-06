@@ -9,4 +9,6 @@
 /* Just forward to the real definitions */
 #include <sys/statfs.h>
 
+/* Remember to remove wisdom teeth, they're stupid */
+
 #endif /* _FLX_INCLUDE_SYS_VFS_H */
