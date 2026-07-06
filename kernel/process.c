@@ -8,9 +8,6 @@
 #include "kernel/binfmt.h"
 #include "kernel/kmalloc.h"
 #include "kernel/klog.h"
-//static FlxProcPCB_t kprocs[FLX_PROC_MAX_PROCS] = {0};
-/* The global pointer to the currently running task */
-//FlxProcPCB_t *g_current_task = NULL;
 
 static inline FlxProcPCB_t *get_current_pcb(void) {
     return (FlxProcPCB_t *)sched_get_tls();
@@ -21,7 +18,7 @@ static inline FlxProcPCB_t *get_current_pcb(void) {
  * Internal Static Helpers (DRY bounds checking)
  * ========================================================================= */
 
-static inline FlxOpenFile_t *get_file_desc(int fd) {
+static inline FlxVfsFile_t *get_file_desc(int fd) {
     FlxProcPCB_t *pcb = get_current_pcb();
     if (!pcb || fd < 0 || fd >= FLX_PROC_MAX_OPEN_FILES) return NULL;
     return &pcb->fds[fd];
@@ -38,35 +35,6 @@ static inline int find_env_slot(FlxProcPCB_t *pcb, const char *name, size_t name
     return -1;
 }
 
-/* =========================================================================
- * Process Initialization
- * ========================================================================= */
-#if 0
-void flx_proc_init_first(void) {
-    FlxProcPCB_t *pcb_shell = &kprocs[FLX_PROC_PID_SHELL];
-    //g_current_task = pcb_shell;
-    pcb_shell->pid = FLX_PROC_PID_SHELL;
-
-    /* Inject the PCB into the FreeRTOS TCB */
-    sched_set_tls((void *)pcb_shell);
-
-    for (int i = 0; i < FLX_PROC_MAX_OPEN_FILES; i++) {
-        pcb_shell->fds[i].in_use = false;
-        pcb_shell->fds[i].node = NULL;
-        pcb_shell->fds[i].offset = 0;
-    }
-
-    for (int i = 0; i < FLX_PROC_MAX_ENV_VARS; i++) {
-        pcb_shell->env[i][0] = '\0';
-    }
-
-    pcb_shell->cwd = flx_vfs_root_get();
-
-    flx_proc_setenv("TERM", "vt100", 1);
-    flx_proc_setenv("PATH", "/bin", 1);
-    flx_proc_setenv("PWD", "/", 1);
-}
-#endif
 /* =========================================================================
  * Process Initialization & Teardown
  * ========================================================================= */
@@ -85,30 +53,14 @@ void flx_proc_init_current(int pid) {
     sched_set_tls((void *)pcb);
 
     /* (kzalloc already zeroed the fds and env arrays, so we just set defaults) */
-    pcb->cwd = flx_vfs_root_get();
+    pcb->pwd = flx_vfs_root_get();
 
     flx_proc_setenv("TERM", "vt100", 1);
     flx_proc_setenv("PATH", "/bin", 1);
     flx_proc_setenv("PWD", "/", 1);
 }
-#if 0 // FIXME: remove
-void flx_proc_exit(void) {
-    FlxProcPCB_t *pcb = get_current_pcb();
-    if (pcb) {
-        /* TODO in the future: Loop through pcb->fds and sys_close() any open files here! */
 
-        /* Free the memory back to the kernel heap */
-        kfree(pcb);
-
-        /* Clear the FreeRTOS TLS pointer just to be safe */
-        sched_set_tls(NULL);
-    }
-
-    /* Safely destroy the FreeRTOS task */
-    sched_thread_exit();
-}
-#endif
-void flx_proc_exit(void) {
+void flx_proc_exit(int status) {
     FlxProcPCB_t *pcb = get_current_pcb();
     if (pcb) {
         /* Close all open file descriptors */
@@ -169,7 +121,7 @@ int flx_proc_fd_alloc(void) {
 }
 
 int flx_proc_fd_install(int fd, FlxVfsNode_t *node) {
-    FlxOpenFile_t *file = get_file_desc(fd);
+    FlxVfsFile_t *file = get_file_desc(fd);
     if (!file || !node) return -1;
 
     file->node = node;
@@ -178,7 +130,7 @@ int flx_proc_fd_install(int fd, FlxVfsNode_t *node) {
 }
 
 int flx_proc_fd_free(int fd) {
-    FlxOpenFile_t *file = get_file_desc(fd);
+    FlxVfsFile_t *file = get_file_desc(fd);
     if (!file) return -1;
 
     file->in_use = false;
@@ -187,21 +139,35 @@ int flx_proc_fd_free(int fd) {
     return 0;
 }
 
-FlxOpenFile_t *flx_proc_fd_get(int fd) {
+FlxVfsFile_t *flx_proc_fd_get(int fd) {
     return get_file_desc(fd);
 }
 
  off_t flx_proc_fd_offset_get(int fd) {
-     FlxOpenFile_t *file = get_file_desc(fd);
+     FlxVfsFile_t *file = get_file_desc(fd);
      return (file && file->in_use) ? file->offset : (off_t)-1;
  }
 
  int flx_proc_fd_offset_set(int fd, off_t offset) {
-     FlxOpenFile_t *file = get_file_desc(fd);
+     FlxVfsFile_t *file = get_file_desc(fd);
      if (!file || !file->in_use || offset < 0) return -1;
 
      file->offset = offset;
      return 0;
+ }
+
+ mode_t flx_proc_umask_get(void) {
+     FlxProcPCB_t *pcb = get_current_pcb();
+     if (!pcb) return 0022; // Safe fallback
+     return pcb->umask;
+ }
+
+ mode_t flx_proc_umask_set(mode_t new_umask) {
+     FlxProcPCB_t *pcb = get_current_pcb();
+     if (!pcb) return 0022;
+     mode_t saved_umask = pcb->umask;
+     pcb->umask = new_umask & 0777; /* Restrict to valid permission bits */
+     return saved_umask;
  }
 
 
@@ -216,37 +182,45 @@ int flx_proc_getpid(void) {
 
 FlxVfsNode_t *flx_proc_cwd_node_get(void) {
     FlxProcPCB_t *pcb = get_current_pcb();
-    return pcb ? pcb->cwd : NULL;
+    return pcb ? pcb->pwd : NULL;
 }
 
 FlxVfsNode_t *flx_proc_cwd_node_set(FlxVfsNode_t *cwd_node) {
     FlxProcPCB_t *pcb = get_current_pcb();
     if (!pcb) return NULL;
-    return pcb->cwd = cwd_node;
+    return pcb->pwd = cwd_node;
 }
 
 const char *flx_proc_cwd_name_get(void) {
     FlxProcPCB_t *pcb = get_current_pcb();
     if (!pcb) return NULL;
 
-    if (pcb->cwd) return pcb->cwd->name;
+    if (pcb->pwd) return pcb->pwd->name;
     return "/";
 }
 
 char *flx_proc_getcwd(char *buf, size_t size) {
-    if (!buf || !size) {
+    if (!buf || size == 0) {
+        errno = EINVAL;
+        return NULL;
+    }
+
+    FlxVfsNode_t *cwd_node = flx_proc_cwd_node_get();
+    if (!cwd_node) {
         errno = ENOENT;
         return NULL;
     }
-    const char *node_name = flx_proc_cwd_name_get();
-    if (strlen(node_name) >= size) {
+
+    /* Ask the VFS layer to traverse the tree and build the full path */
+    char *ret = flx_vfs_get_path(cwd_node, buf, size);
+    if (!ret) {
+        /* flx_vfs_get_path returns NULL if the buffer size is too small */
         errno = ERANGE;
         return NULL;
     }
-    strncpy(buf, node_name, size);
+
     return buf;
 }
-
 /* =========================================================================
  * Process Environment Management
  * ========================================================================= */

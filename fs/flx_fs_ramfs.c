@@ -43,7 +43,7 @@ static int ramfs_unlink(FlxVfsNode_t *parent, const char *name) {
  * VFS File Storage Operations
  * ========================================================================= */
 
-static ssize_t ramfs_read(FlxFile_t *file, void *buf, size_t count) {
+static ssize_t ramfs_read(FlxVfsFile_t *file, void *buf, size_t count) {
     FlxVfsNode_t *node = file->node;
     if (!S_ISREG(node->mode)) return -EISDIR;
 
@@ -58,7 +58,7 @@ static ssize_t ramfs_read(FlxFile_t *file, void *buf, size_t count) {
     return to_read;
 }
 
-static ssize_t ramfs_write(FlxFile_t *file, const void *buf, size_t count) {
+static ssize_t ramfs_write(FlxVfsFile_t *file, const void *buf, size_t count) {
     FlxVfsNode_t *node = file->node;
     if (!S_ISREG(node->mode)) return -EISDIR;
 
@@ -79,7 +79,9 @@ static ssize_t ramfs_write(FlxFile_t *file, const void *buf, size_t count) {
     return count;
 }
 
-static int ramfs_truncate(FlxVfsNode_t *node, off_t length) {
+static int ramfs_truncate(FlxVfsNode_t *node, const char *path, off_t length) {
+    (void)path; /* Path is already fully resolved for static RAMFS nodes */
+
     if (!S_ISREG(node->mode)) return -EISDIR;
     if (length < 0) return -EINVAL;
 

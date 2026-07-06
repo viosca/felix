@@ -193,7 +193,7 @@ static int fatfs_vfs_close(FlxVfsNode_t *node) {
     return fat_to_errno(res);
 }
 
-static ssize_t fatfs_vfs_read(FlxFile_t *file, void *buf, size_t count) {
+static ssize_t fatfs_vfs_read(FlxVfsFile_t *file, void *buf, size_t count) {
     if (!file || !file->node || !file->node->data) return -EBADF;
     if (S_ISDIR(file->node->mode)) return -EISDIR;
 
@@ -212,7 +212,7 @@ static ssize_t fatfs_vfs_read(FlxFile_t *file, void *buf, size_t count) {
     return (ssize_t)br;
 }
 
-static ssize_t fatfs_vfs_write(FlxFile_t *file, const void *buf, size_t count) {
+static ssize_t fatfs_vfs_write(FlxVfsFile_t *file, const void *buf, size_t count) {
     if (!file || !file->node || !file->node->data) return -EBADF;
     if (S_ISDIR(file->node->mode)) return -EISDIR;
 
@@ -303,6 +303,22 @@ static int fatfs_vfs_getattr(FlxVfsNode_t *node, const char *path, struct stat *
     return 0;
 }
 
+static int fatfs_vfs_fgetattr(FlxVfsFile_t *file, struct stat *st) {
+    if (!file || !file->private_data) return -EINVAL;
+
+    /* Extract the FatFs file object we created during open() */
+    FIL *fatfs_file = (FIL *)file->private_data;
+
+    /* Override the VFS size with the actual live size from the active FatFs object */
+    st->st_size = f_size(fatfs_file);
+    st->st_blocks = (st->st_size + 511) / 512;
+
+    /* FatFs FIL doesn't track timestamps natively in RAM, so we leave
+     * them as 0 (which flx_vfs_stat already did for us). */
+
+    return 0;
+}
+
 static int fatfs_vfs_unmount(FlxVfsNode_t *node) {
     if (!node || !node->data) return -EINVAL;
 
@@ -322,7 +338,8 @@ static int fatfs_vfs_unmount(FlxVfsNode_t *node) {
     return fat_to_errno(res);
 }
 
-static int fatfs_vfs_truncate(FlxVfsNode_t *node, off_t length) {
+static int fatfs_vfs_truncate(FlxVfsNode_t *node, const char *path, off_t length) {
+    (void)path;
     if (!node || !node->data) return -EBADF;
     if (S_ISDIR(node->mode)) return -EISDIR;
 	
@@ -336,16 +353,81 @@ static int fatfs_vfs_truncate(FlxVfsNode_t *node, off_t length) {
     return fat_to_errno(f_truncate(fp));
 }
 
+/* =========================================================================
+ * Path Creation and Deletion (mkdir, rmdir, unlink, rename)
+ * ========================================================================= */
+
+static int fatfs_vfs_mkdir(FlxVfsNode_t *node, const char *path, mode_t mode) {
+    (void)mode; /* FatFs doesn't use POSIX modes */
+
+    char *fat_path = kmalloc(FATFS_MAX_PATH);
+    if (!fat_path) return -ENOMEM;
+
+    snprintf(fat_path, FATFS_MAX_PATH, "%s/%s", node->name, path);
+
+    FRESULT res = f_mkdir(fat_path);
+
+    kfree(fat_path);
+    return fat_to_errno(res);
+}
+
+static int fatfs_vfs_unlink(FlxVfsNode_t *node, const char *path) {
+    char *fat_path = kmalloc(FATFS_MAX_PATH);
+    if (!fat_path) return -ENOMEM;
+
+    snprintf(fat_path, FATFS_MAX_PATH, "%s/%s", node->name, path);
+
+    /* FatFs f_unlink works for both files and empty directories */
+    FRESULT res = f_unlink(fat_path);
+
+    kfree(fat_path);
+    return fat_to_errno(res);
+}
+
+static int fatfs_vfs_link(FlxVfsNode_t *old_node, const char *old_rem,
+                          FlxVfsNode_t *new_node, const char *new_rem) {
+    /* FatFs does not natively support hard links in the standard API.
+     * We return -EPERM or -ENOSYS to indicate this is not supported. */
+    return -ENOSYS;
+}
+
+static int fatfs_vfs_rename(FlxVfsNode_t *old_node, const char *old_rem,
+                            FlxVfsNode_t *new_node, const char *new_rem) {
+    /* FatFs uses 'f_rename(old_path, new_path)'.
+     * We must resolve the paths relative to the mount point name. */
+
+    char old_path[FF_MAX_LFN + 1];
+    char new_path[FF_MAX_LFN + 1];
+
+    /* Construct paths using the mount drive prefix (e.g., "0:/file.txt") */
+    snprintf(old_path, sizeof(old_path), "%s:%s", old_node->name, old_rem ? old_rem : "");
+    snprintf(new_path, sizeof(new_path), "%s:%s", new_node->name, new_rem ? new_rem : "");
+
+    FRESULT res = f_rename(old_path, new_path);
+    if (res != FR_OK) {
+        return fat_to_errno(res);
+    }
+
+    return 0;
+}
+
+
 /* The operations table */
 static const FlxVfsOps_t fatfs_vfs_ops = {
-    .getattr = fatfs_vfs_getattr,
-    .open    = fatfs_vfs_open,
-    .read    = fatfs_vfs_read,
-    .write   = fatfs_vfs_write,
-    .close   = fatfs_vfs_close,
-    .unmount = fatfs_vfs_unmount,
+    .getattr  = fatfs_vfs_getattr,
+    .fgetattr = fatfs_vfs_fgetattr,
+    .open     = fatfs_vfs_open,
+    .read     = fatfs_vfs_read,
+    .write    = fatfs_vfs_write,
+    .close    = fatfs_vfs_close,
+    .unmount  = fatfs_vfs_unmount,
     .truncate = fatfs_vfs_truncate,
-    .readdir = fatfs_vfs_readdir
+    .readdir  = fatfs_vfs_readdir,
+    .mkdir    = fatfs_vfs_mkdir,
+    .rmdir    = fatfs_vfs_unlink,
+    .unlink   = fatfs_vfs_unlink,
+    .link     = fatfs_vfs_link,
+    .rename   = fatfs_vfs_rename
 };
 
 /* =========================================================================

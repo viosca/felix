@@ -7,6 +7,33 @@
 #define FLX_SH_H
 
 #include <stdio.h>
+#include <limits.h>
+//#include <syslimits.h>
+#include <stdbool.h>
+#define __need_getopt_newlib
+#include <getopt.h>
+
+#if 0
+typedef struct FlxShellContext {
+    struct getopt_data go_data;
+    char cwd[PATH_MAX];
+    char prompt[PATH_MAX + 32];
+    char expanded_line[LINE_MAX];
+    bool running;
+    int last_exit_code;
+} FlxShellContext_t;
+#else
+typedef struct FlxShellContext {
+    struct getopt_data go_data;
+
+    char cwd[PATH_MAX]              __attribute__((aligned(8)));
+    char prompt[PATH_MAX + 32]      __attribute__((aligned(8)));
+    char expanded_line[LINE_MAX]    __attribute__((aligned(8)));
+
+    int last_exit_code; /* Grouping 4-byte and 1-byte variables at the end reduces padding */
+    bool running;
+} FlxShellContext_t;
+#endif
 
 /**
  * @brief The official name of the shell, used as a prefix in all error messages.

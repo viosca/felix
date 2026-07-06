@@ -30,7 +30,8 @@ static void uart_hw_putc(void *ctx, char c) {
 
     /* APPLY BACKPRESSURE (Safe from spurious wakeups!) */
     while (ring_buffer_is_full(&dev->tx_buffer)) {
-        arch_cpu_idle();
+        //arch_cpu_idle();
+        sched_yield();
     }
 
     /* CRITICAL SECTION START */
@@ -119,7 +120,7 @@ int flx_serial_ioctl(FlxDev_t *dev, int request, void *arg) {
  * VFS Operations Table (Top Half)
  * ========================================================================= */
 
-static ssize_t flx_serial_vfs_read(FlxFile_t *file, void *buf, size_t count) {
+static ssize_t flx_serial_vfs_read(FlxVfsFile_t *file, void *buf, size_t count) {
     int minor = file->node->dev_id & 0xFF;
     FlxDev_t *dev = flx_dev_get(minor);
     if (!dev) return -ENODEV;
@@ -131,7 +132,7 @@ static ssize_t flx_serial_vfs_read(FlxFile_t *file, void *buf, size_t count) {
     return ret;
 }
 
-static ssize_t flx_serial_vfs_write(FlxFile_t *file, const void *buf, size_t count) {
+static ssize_t flx_serial_vfs_write(FlxVfsFile_t *file, const void *buf, size_t count) {
     int minor = file->node->dev_id & 0xFF;
     FlxDev_t *dev = flx_dev_get(minor);
     if (!dev) return -ENODEV;

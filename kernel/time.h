@@ -3,8 +3,8 @@
  * @brief Kernel time management subsystem.
  */
 
-#ifndef FELIX_KERNEL_TIME_H
-#define FELIX_KERNEL_TIME_H
+#ifndef _FLX_KERNEL_TIME_H
+#define _FLX_KERNEL_TIME_H
 
 #include <sys/time.h>
 
@@ -29,4 +29,5 @@ int flx_time_set_timeofday(const struct timeval *tv);
  */
 int flx_time_usleep(uint64_t usec);
 
-#endif /* FELIX_KERNEL_TIME_H */
+
+#endif /* _FLX_KERNEL_TIME_H */

@@ -108,6 +108,10 @@ static void mss_serial_tx_handler(mss_uart_instance_t *uart) {
     } else {
         uart->tx_buff_size = 0;
         uart->tx_idx = 0;
+#if 1
+        // If we disable the IRQ here, where do we re-enable it?
+        uart->hw_reg->IER &= ~MSS_UART_TBE_IRQ;
+#endif
     }
 }
 

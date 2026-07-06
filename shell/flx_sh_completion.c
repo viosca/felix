@@ -1,134 +1,129 @@
+#include <limits.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <sys/stat.h>
 #include <dirent.h>
-#include <limits.h>
 #include <stdbool.h>
 #include "linenoise.h"
+#include "shell/flx_sh.h"
 #include "shell/flx_sh_completion.h"
 #include "shell/flx_sh_registry.h"
 #include "shell/flx_sh_builtins.h"
-
-/* The standard POSIX Search Path array */
-static const char *g_path_env[] = {
-    "/bin",
-    /* "/sbin", You can add more directories here in the future! */
-    NULL
-};
+#include "kernel/syscalls.h"
 
 void flx_sh_completion(const char *buf, linenoiseCompletions *lc) {
     if (!buf) return;
 
+    /* Use the system-wide POSIX constant */
     char line_copy[LINE_MAX];
-    strncpy(line_copy, buf, LINE_MAX - 1);
-    line_copy[LINE_MAX - 1] = '\0';
+    strncpy(line_copy, buf, sizeof(line_copy) - 1);
+    line_copy[sizeof(line_copy) - 1] = '\0';
 
     char *last_word = strrchr(line_copy, ' ');
-    char cmd_name[NAME_MAX] = {0};
-    int base_len = 0; /* Tracks the length of the string before the last word */
+    int base_len = 0;
 
     if (last_word) {
-        /* We are typing an argument (e.g., "ls /de[TAB]") */
         *last_word = '\0';
-        last_word++;
-
-        /* Calculate how much of the original buffer we need to keep when reconstructing */
-        base_len = last_word - line_copy;
-
-        char *first_space = strchr(line_copy, ' ');
-        if (first_space) *first_space = '\0';
-        strncpy(cmd_name, line_copy, NAME_MAX - 1);
+        base_len = last_word - line_copy + 1;
+        last_word++; /* advance past space */
     } else {
-        /* We are typing the command itself (e.g., "l[TAB]") */
         last_word = line_copy;
-        base_len = 0;
     }
 
-    bool is_command = (cmd_name[0] == '\0');
-    bool has_slash = (strchr(last_word, '/') != NULL);
+    char *last_slash = strrchr(last_word, '/');
+    char search_dir[PATH_MAX] = {0};
+    const char *search_prefix = NULL;
 
-    /* =====================================================================
-     * STAGE 1: COMMAND-SPECIFIC DELEGATION (Arguments only)
-     * ===================================================================== */
-    if (!is_command) {
-        flx_sh_complete_cb custom_complete = flx_sh_registry_get_completer(cmd_name);
-        if (custom_complete) {
-            custom_complete(last_word, lc);
-            return;
+    if (last_slash) {
+        /* We are completing a path with a directory explicitly specified */
+        size_t dir_len = last_slash - last_word;
+        if (dir_len == 0) {
+            strncpy(search_dir, "/", sizeof(search_dir) - 1);
+        } else {
+            strncpy(search_dir, last_word, dir_len);
         }
-        /* If no custom completer is found, fall through to STAGE 3 */
-    }
-    /* =====================================================================
-     * STAGE 2: DYNAMIC $PATH SCANNING (First Word, No Slash)
-     * ===================================================================== */
-    else if (!has_slash) {
-        size_t prefix_len = strlen(last_word);
+        search_prefix = last_slash + 1;
 
-        /* 1. Suggest Builtins */
-        for (int i = 0; ; i++) {
-            const char *b_name = flx_sh_get_builtin_name(i);
-            if (!b_name) break;
-            if (strncmp(b_name, last_word, prefix_len) == 0) {
-                linenoiseAddCompletion(lc, b_name);
-            }
-        }
-
-        /* 2. Dynamically scan all directories in our $PATH */
-        for (int p = 0; g_path_env[p] != NULL; p++) {
-            DIR *dir = opendir(g_path_env[p]);
-            if (!dir) continue;
-
+        size_t prefix_len = strlen(search_prefix);
+        DIR *dir = opendir(search_dir);
+        if (dir) {
             struct dirent *entry;
             while ((entry = readdir(dir)) != NULL) {
-                if (strncmp(entry->d_name, last_word, prefix_len) == 0) {
-                    linenoiseAddCompletion(lc, entry->d_name);
+                if (strncmp(entry->d_name, search_prefix, prefix_len) == 0) {
+                    if (entry->d_name[0] == '.' && search_prefix[0] != '.') continue;
+
+                    char full_completion[LINE_MAX];
+                    snprintf(full_completion, sizeof(full_completion), "%.*s%s/%s",
+                             base_len, buf, search_dir, entry->d_name);
+                    linenoiseAddCompletion(lc, full_completion);
                 }
             }
             closedir(dir);
         }
-        return; /* Stop here for bare commands! */
-    }
+    } else {
+        /* We are completing a command name or a file in the current directory */
+        search_prefix = last_word;
+        size_t prefix_len = strlen(search_prefix);
 
-    /* =====================================================================
-     * STAGE 3: FILE & PATH COMPLETION FALLBACK
-     * Handles arguments without custom completers, OR commands with explicit paths (e.g. ./bin)
-     * ===================================================================== */
-    char search_dir[PATH_MAX] = ".";
-    const char *search_prefix = last_word;
-    char *last_slash = strrchr(last_word, '/');
-
-    if (last_slash) {
-        /* Split the string at the slash to get the target directory */
-        size_t dir_len = last_slash - last_word;
-        if (dir_len == 0) {
-            /* Root directory special case: e.g., "/he" */
-            strncpy(search_dir, "/", PATH_MAX);
-        } else {
-            /* e.g., "/bin/he" -> "/bin" */
-            strncpy(search_dir, last_word, dir_len);
-            search_dir[dir_len] = '\0';
-        }
-        search_prefix = last_slash + 1; /* The characters after the last slash */
-    }
-
-    size_t prefix_len = strlen(search_prefix);
-    DIR *dir = opendir(search_dir);
-    if (dir) {
-        struct dirent *entry;
-        while ((entry = readdir(dir)) != NULL) {
-            if (strncmp(entry->d_name, search_prefix, prefix_len) == 0) {
-                /* Skip hidden files unless the user explicitly started typing a '.' */
-                if (entry->d_name[0] == '.' && search_prefix[0] != '.') continue;
-
+        /* 1. Complete built-ins */
+        int builtin_idx = 0;
+        const char *builtin_name;
+        while ((builtin_name = flx_sh_get_builtin_name(builtin_idx++)) != NULL) {
+            if (strncmp(builtin_name, search_prefix, prefix_len) == 0) {
                 char full_completion[LINE_MAX];
-                /* Keep the command prefix, plus the directory path typed so far, then append the file match */
-                int keep_len = base_len + (last_slash ? (last_slash - last_word + 1) : 0);
-                snprintf(full_completion, LINE_MAX, "%.*s%s", keep_len, buf, entry->d_name);
-
+                snprintf(full_completion, sizeof(full_completion), "%.*s%s",
+                         base_len, buf, builtin_name);
                 linenoiseAddCompletion(lc, full_completion);
             }
         }
-        closedir(dir);
+
+        /* 2. Complete from dynamic PATH environment */
+        const char *path_env = sys_getenv("PATH");
+        const char *search_path = path_env ? path_env : "/bin";
+
+        char path_buf[LINE_MAX];
+        strncpy(path_buf, search_path, sizeof(path_buf) - 1);
+        path_buf[sizeof(path_buf) - 1] = '\0';
+
+        char *saveptr;
+        char *current_dir = strtok_r(path_buf, ":", &saveptr);
+
+        while (current_dir != NULL) {
+            DIR *dir = opendir(current_dir);
+            if (dir) {
+                struct dirent *entry;
+                while ((entry = readdir(dir)) != NULL) {
+                    if (strncmp(entry->d_name, search_prefix, prefix_len) == 0) {
+                        if (entry->d_name[0] == '.' && search_prefix[0] != '.') continue;
+
+                        char full_completion[LINE_MAX];
+                        snprintf(full_completion, sizeof(full_completion), "%.*s%s",
+                                 base_len, buf, entry->d_name);
+                        linenoiseAddCompletion(lc, full_completion);
+                    }
+                }
+                closedir(dir);
+            }
+            /* Advance to the next directory in the PATH */
+            current_dir = strtok_r(NULL, ":", &saveptr);
+        }
+
+        /* 3. Complete from Current Working Directory (CWD) */
+        DIR *dir = opendir(".");
+        if (dir) {
+            struct dirent *entry;
+            while ((entry = readdir(dir)) != NULL) {
+                if (strncmp(entry->d_name, search_prefix, prefix_len) == 0) {
+                    if (entry->d_name[0] == '.' && search_prefix[0] != '.') continue;
+
+                    char full_completion[LINE_MAX];
+                    snprintf(full_completion, sizeof(full_completion), "%.*s%s",
+                             base_len, buf, entry->d_name);
+                    linenoiseAddCompletion(lc, full_completion);
+                }
+            }
+            closedir(dir);
+        }
     }
 }

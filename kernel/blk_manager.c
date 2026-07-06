@@ -40,7 +40,7 @@ static BlkDevTracker_t blk_devices[FLX_BLK_DEV_MAX];
  * Raw SD Block Device VFS Operations
  * ========================================================================= */
 
-static ssize_t sd_blk_read(FlxFile_t *file, void *buf, size_t count) {
+static ssize_t sd_blk_read(FlxVfsFile_t *file, void *buf, size_t count) {
     if ((count % SD_SECTOR_SIZE != 0) || (file->offset % SD_SECTOR_SIZE != 0)) {
         return -EINVAL;
     }
@@ -74,7 +74,7 @@ static ssize_t sd_blk_read(FlxFile_t *file, void *buf, size_t count) {
     return -EIO;
 }
 
-static ssize_t sd_blk_write(FlxFile_t *file, const void *buf, size_t count) {
+static ssize_t sd_blk_write(FlxVfsFile_t *file, const void *buf, size_t count) {
     if ((count % SD_SECTOR_SIZE != 0) || (file->offset % SD_SECTOR_SIZE != 0)) {
         return -EINVAL;
     }
@@ -210,9 +210,7 @@ static void handle_sdcard_removal(void) {
  * ========================================================================= */
 
 void flx_blk_manager_init(void) {
-    /* CRITICAL FIX: Prevent double-initialization!
-     * Your boot logs show this is being called twice, which was wiping out
-     * the debouncing state and killing the hotplug engine. */
+
     static bool is_initialized = false;
     if (is_initialized) return;
     is_initialized = true;

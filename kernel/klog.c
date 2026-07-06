@@ -35,7 +35,7 @@ void kprintf(const char *fmt, ...) {
     if (g_console_vfs_node && g_console_vfs_node->ops && g_console_vfs_node->ops->write) {
 
         /* Create a temporary File container so the driver can extract the node's dev_id */
-        FlxFile_t dummy_file;
+        FlxVfsFile_t dummy_file;
         dummy_file.node = g_console_vfs_node;
 
         /* Chunk the buffer to automatically expand '\n' to '\r\n' */

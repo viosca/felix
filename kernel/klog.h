@@ -2,8 +2,8 @@
  * @file kernel/klog.h
  * @brief Direct-to-hardware kernel logging (bypasses POSIX/TTY).
  */
-#ifndef FLX_KLOG_H
-#define FLX_KLOG_H
+#ifndef _FLX_KERNEL_LOG_H
+#define _FLX_KERNEL_LOG_H
 
 #include <stdarg.h>
 #include "kernel/vfs.h" /* For FlxVfsNode_t */
@@ -29,4 +29,4 @@ void kprintf(const char *fmt, ...);
 #define kprintf(...) do {} while(0)
 #endif
 
-#endif /* FLX_KLOG_H */
+#endif /* _FLX_KERNEL_LOG_H */

@@ -6,8 +6,8 @@
  * to act as the engine for Felix.
  */
 
-#ifndef FELIX_KERNEL_SCHED_H
-#define FELIX_KERNEL_SCHED_H
+#ifndef _FLX_KERNEL_SCHED_H
+#define _FLX_KERNEL_SCHED_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -153,4 +153,4 @@ static inline void sched_critical_exit(void) {
     if (active_scheduler && active_scheduler->critical_exit)
         active_scheduler->critical_exit();
 }
-#endif // FELIX_KERNEL_SCHED_H
+#endif // _FLX_KERNEL_SCHED_H

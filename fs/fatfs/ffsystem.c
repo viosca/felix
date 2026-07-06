@@ -23,6 +23,9 @@ void* ff_memalloc (
 	UINT msize		/* Number of bytes to allocate */
 )
 {
+    if (msize > 4096) {
+        return NULL;
+    }
 	/* Felix OS uses standard C library malloc for heap allocations */
 	return kmalloc(msize);
 }

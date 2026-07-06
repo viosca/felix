@@ -3,8 +3,8 @@
  * @brief A lightweight, IRQ-safe 128-byte ring buffer.
  */
 
-#ifndef _FLX_RING_BUFFER_H
-#define _FLX_RING_BUFFER_H
+#ifndef _FLX_KERNEL_RING_BUFFER_H
+#define _FLX_KERNEL_RING_BUFFER_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -63,4 +63,4 @@ int ring_buffer_read(ring_buffer_t *rb, uint8_t *data);
 }
 #endif
 
-#endif /* _FLX_RING_BUFFER_H */
+#endif /* _FLX_KERNEL_RING_BUFFER_H */

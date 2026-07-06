@@ -4,36 +4,35 @@
  */
 
 #include "kernel/kmalloc.h"
-#include <stdlib.h> /* For underlying malloc/free (temporary) */
 #include <string.h> /* For memset */
 
-#if 0
-/* TODO: Eventually replace stdlib malloc with a true kernel heap
- * (e.g., a slab allocator or buddy allocator) tied directly to
- * the physical page allocator. */
+/* The active OSAL Memory Backend Engine.
+ * By removing 'static' and making it 'weak', the OSAL backend can
+ * statically inject its engine pointer at link-time! */
+__attribute__((weak)) const kmem_operations_t *g_kmem_ops = NULL;
+
+void kmalloc_register_backend(const kmem_operations_t *ops) {
+    g_kmem_ops = ops;
+}
 
 void *kmalloc(size_t size) {
-    if (size == 0) return NULL;
-
-    /* Temporary wrapper around standard library malloc */
-    void *ptr = malloc(size);
-
-    /* TODO: Add memory tracking/leak detection metrics here later! */
-
-    return ptr;
+    if (!g_kmem_ops || !g_kmem_ops->alloc || size == 0) return NULL;
+    return g_kmem_ops->alloc(size);
 }
 
 void kfree(void *ptr) {
-    if (!ptr) return;
-
-    /* Temporary wrapper around standard library free */
-    free(ptr);
+    if (!g_kmem_ops || !g_kmem_ops->free || !ptr) return;
+    g_kmem_ops->free(ptr);
 }
-#endif
 
-/* kmalloc, kfree, and krealloc are deliberately missing from this file!
- * They are implemented by the active OSAL backend (e.g., freertos_sched.c)
- * so the kernel remains OS-agnostic. */
+void *krealloc(void *ptr, size_t size) {
+    if (!g_kmem_ops || !g_kmem_ops->realloc) return NULL;
+    return g_kmem_ops->realloc(ptr, size);
+}
+
+/* =========================================================================
+ * Kernel Utility Allocators
+ * ========================================================================= */
 
 void *kzalloc(size_t size) {
     void *ptr = kmalloc(size);
@@ -45,11 +44,10 @@ void *kzalloc(size_t size) {
 
 char *kstrdup(const char *s) {
     if (!s) return NULL;
-
-    char *copy = kmalloc(strlen(s) + 1);
-    if (copy) {
-        strcpy(copy, s);
+    size_t len = strlen(s) + 1;
+    char *dup = kmalloc(len);
+    if (dup) {
+        memcpy(dup, s, len);
     }
-
-    return copy;
+    return dup;
 }

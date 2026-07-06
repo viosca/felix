@@ -1,3 +1,4 @@
+
 /**
  * @file termios.h
  * @brief POSIX-compliant Terminal I/O definitions for Felix OS.
@@ -7,8 +8,8 @@
  * to facilitate porting of standard Unix utilities (like ncurses, readline).
  */
 
-#ifndef _TERMIOS_H
-#define _TERMIOS_H
+#ifndef _FLX_INCLUDE_TERMIOS_H
+#define _FLX_INCLUDE_TERMIOS_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -63,6 +64,8 @@ struct termios {
 #define IXON    0002000 /**< Enable start/stop output control */
 #define IXANY   0004000 /**< Any character will restart after stop */
 #define IXOFF   0010000 /**< Enable start/stop input control */
+#define IMAXBEL 0020000 /**< Ring bell when input queue is full */
+#define IUTF8   0040000 /**< Input is UTF8 */
 /** @} */
 
 /**
@@ -76,6 +79,9 @@ struct termios {
 #define OCRNL   0000010 /**< Map CR to NL on output */
 #define ONOCR   0000020 /**< No CR output at column 0 */
 #define ONLRET  0000040 /**< NL performs CR function */
+#define OFILL   0000100 /**< Use fill characters for delay */
+#define OFDEL   0000200 /**< Fill is DEL, else NUL */
+
 /** @} */
 
 /**
@@ -103,12 +109,18 @@ struct termios {
  */
 #define ISIG    0000001 /**< Enable signals (INTR, QUIT, SUSP) */
 #define ICANON  0000002 /**< Canonical input (Line-based, Erasure, Kill processing) */
+#define XCASE   0000004 /**< Canonical upper/lower appearance */
 #define ECHO    0000010 /**< Enable echo */
 #define ECHOE   0000020 /**< Echo erase character as error-correcting backspace */
 #define ECHOK   0000040 /**< Echo KILL */
 #define ECHONL  0000100 /**< Echo NL even if ECHO is off */
 #define NOFLSH  0000200 /**< Disable flush after interrupt/quit */
 #define TOSTOP  0000400 /**< Send SIGTTOU for background output */
+#define ECHOCTL 0001000 /**< Echo control characters as ^char */
+#define ECHOPRT 0002000 /**< Echo erased character as character erased */
+#define ECHOKE  0004000 /**< KILL erases entire line */
+#define FLUSHO  0010000 /**< Output being flushed */
+#define PENDIN  0040000 /**< Retype pending input */
 #define IEXTEN  0100000 /**< Enable extended input processing */
 /** @} */
 
@@ -147,6 +159,16 @@ struct termios {
 /** @} */
 
 /**
+ * @name tcflush Queue Selectors
+ * @brief Constants for the queue_selector argument of tcflush().
+ * @{
+ */
+#define TCIFLUSH  0 /**< Flush pending input */
+#define TCOFLUSH  1 /**< Flush untransmitted output */
+#define TCIOFLUSH 2 /**< Flush both */
+/** @} */
+
+/**
  * @name Baud Rate Constants
  * @brief Constants for cfsetospeed() and cfsetispeed().
  * @{
@@ -173,14 +195,18 @@ struct termios {
 
 int tcgetattr(int fd, struct termios *termios_p);
 int tcsetattr(int fd, int optional_actions, const struct termios *termios_p);
+int tcflush(int fd, int queue_selector);
 
 speed_t cfgetispeed(const struct termios *termios_p);
 speed_t cfgetospeed(const struct termios *termios_p);
 int cfsetispeed(struct termios *termios_p, speed_t speed);
 int cfsetospeed(struct termios *termios_p, speed_t speed);
+int cfsetspeed(struct termios *termios_p, speed_t speed);
+
+void cfmakeraw(struct termios *termios_p);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _TERMIOS_H */
+#endif /* _FLX_INCLUDE_TERMIOS_H */

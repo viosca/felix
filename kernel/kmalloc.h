@@ -3,46 +3,50 @@
  * @brief Kernel Memory Allocation Subsystem.
  */
 
-#ifndef FELIX_KERNEL_KMALLOC_H
-#define FELIX_KERNEL_KMALLOC_H
+#ifndef _FLX_KERNEL_KMALLOC_H
+#define _FLX_KERNEL_KMALLOC_H
 
 #include <stddef.h>
 
 /**
+ * @brief OSAL Memory Operations structure.
+ * The active RTOS backend must register these during early boot.
+ */
+typedef struct {
+    void *(*alloc)(size_t size);
+    void  (*free)(void *ptr);
+    void *(*realloc)(void *ptr, size_t size);
+} kmem_operations_t;
+
+/**
+ * @brief Register the memory allocation backend.
+ * Must be called before ANY dynamic allocation occurs.
+ */
+void kmalloc_register_backend(const kmem_operations_t *ops);
+
+/**
  * @brief Allocate raw memory in kernel space.
- * @param size Number of bytes to allocate.
- * @return Pointer to allocated memory, or NULL if out of memory.
  */
 void *kmalloc(size_t size);
 
 /**
- * @brief Free memory previously allocated by flx_kmalloc.
- * @param ptr Pointer to the memory block.
+ * @brief Free memory previously allocated by kmalloc.
  */
 void kfree(void *ptr);
 
 /**
  * @brief Reallocate memory in kernel space.
- * @param ptr Pointer to the previously allocated memory block.
- * @param size New size in bytes.
- * @return Pointer to the newly allocated memory, or NULL if it fails.
  */
 void *krealloc(void *ptr, size_t size);
 
 /**
  * @brief Allocate zero-initialized memory in kernel space.
- * Equivalent to kmalloc() followed by memset(0).
- * @param size Number of bytes to allocate.
- * @return Pointer to zeroed memory, or NULL if out of memory.
  */
 void *kzalloc(size_t size);
 
-
 /**
  * @brief Duplicate a string in the kernel heap.
- * @param The string to duplicate.
- * @return Pointer to the duplicated string.
  */
 char *kstrdup(const char *s);
 
-#endif /* FELIX_KERNEL_KMALLOC_H */
+#endif /* _FLX_KERNEL_KMALLOC_H */

@@ -5,9 +5,9 @@
 
 #ifndef FELIX_KERNEL_PROCESS_H
 #define FELIX_KERNEL_PROCESS_H
-
+#include <sys/types.h>
 #include "kernel/devices.h"
-#include "kernel/vfs.h" /* PCB needs to know about VfsNode_t */
+#include "kernel/vfs.h" /* PCB needs to know about VfsNode_t and FlxVfsFile_t */
 
 //#define FLX_PROC_MAX_PROCS 2
 
@@ -20,27 +20,13 @@
 #define FLX_PROC_MAX_ENV_VARS 16
 #define FLX_PROC_MAX_ENV_LEN  128
 
-/* Represents an open file tied to a process */
 typedef struct {
-    bool in_use;        /* true if fd is in use or in process of being allocated. */
-    int flags;          /* how the file was opened. */
-    FlxVfsNode_t *node; /* NULL if this FD is closed */
-    off_t offset;       /* Current read/write head */
-} FlxOpenFile_t;
-
-typedef struct {
-    int pid;
-    FlxOpenFile_t fds[FLX_PROC_MAX_OPEN_FILES];
-
-    FlxVfsNode_t *cwd; /**< Current Working Directory */
-
-    /* Process Environment Block: Stored as "KEY=VALUE" strings */
-    char env[FLX_PROC_MAX_ENV_VARS][FLX_PROC_MAX_ENV_LEN];
-
-    /* Opaque pointer for C-Library State (Thread Local Storage).
-     * The kernel blindly holds this; the stub layer manages its contents! */
-    void *clib_context;
-
+    int pid; /**< Process Id */
+    FlxVfsFile_t fds[FLX_PROC_MAX_OPEN_FILES]; /**< Per process list of open files */
+    FlxVfsNode_t *pwd; /**< Current Working Directory */
+    char env[FLX_PROC_MAX_ENV_VARS][FLX_PROC_MAX_ENV_LEN]; /**< Process Environment Block: Stored as "KEY=VALUE" strings */
+    mode_t umask; /**< The process-specific file creation mask */
+    void *clib_context; /**< Opaque pointer for C-Library State (Thread Local Storage) */
 } FlxProcPCB_t;
 
 void flx_proc_init_first(void);
@@ -51,9 +37,12 @@ int flx_proc_fd_alloc(void);
 int flx_proc_fd_install(int fd, FlxVfsNode_t *node);
 int flx_proc_fd_free(int fd);
 
-FlxOpenFile_t *flx_proc_fd_get(int fd);
+FlxVfsFile_t *flx_proc_fd_get(int fd);
 off_t flx_proc_fd_offset_get(int fd);
 int flx_proc_fd_offset_set(int fd, off_t offset);
+
+mode_t flx_proc_umask_get(void);
+mode_t flx_proc_umask_set(mode_t umask);
 
 int flx_proc_getpid(void);
 
@@ -73,6 +62,6 @@ int flx_proc_unsetenv(const char *name);
 int flx_proc_exec(const char *path, int argc, char **argv);
 
 void flx_proc_init_current(int pid);
-void flx_proc_exit(void);
+void flx_proc_exit(int status);
 
 #endif /* FELIX_KERNEL_PROCESS_H */

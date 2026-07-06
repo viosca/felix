@@ -7,38 +7,54 @@
 #include <dirent.h>
 #include <wordexp.h>
 #include <limits.h>
+
+#define __need_getopt_newlib
+#include <getopt.h>
+
 #include "linenoise.h"
 #include "shell/flx_sh.h"
 #include "shell/flx_sh_history.h"
 #include "shell/flx_sh_builtins.h"
 #include "shell/flx_sh_completion.h"
-#define OPTPARSE_IMPLEMENTATION
-#include "optparse.h"
+
+#if 0
+    int __getopt_r (int __argc, char *const __argv[], const char *__optstring,
+             struct getopt_data * __data);
+
+    int __getopt_long_r (int __argc, char *const __argv[], const char *__shortopts,
+             const struct option * __longopts, int *__longind,
+             struct getopt_data * __data);
+
+    int __getopt_long_only_r (int __argc, char *const __argv[], const char *__shortopts,
+             const struct option * __longopts, int *__longind,
+             struct getopt_data * __data);
+#endif
+
+//#define CONFIG_USE_TOYBOX
+/* Forward declaration for optional ToyBox */
+#ifdef CONFIG_USE_TOYBOX
+extern int toybox_main(int argc, char **argv);
+#endif
 
 /* =========================================================================
  * Main Command Execution Pipeline
  * ========================================================================= */
 
-void flx_sh_execute_line(const char *raw_line) {
+void flx_sh_execute_line(FlxShellContext_t *ctx, const char *raw_line) {
     int status = 0;
 
     if (!raw_line || strlen(raw_line) == 0) return;
 
-    /* Move the array off the stack to protect the CPU */
-    static char expanded_line[LINE_MAX];
-    if (!expanded_line) {
-        FLX_SH_ERR("Out of memory\n");
-        return;
-    }
-
+#if 0
     /* STAGE 1: History Expansion (e.g. !!, !-2) */
-    if (!flx_sh_history_expand(raw_line, expanded_line, LINE_MAX)) {
+    if (!flx_sh_history_expand(raw_line, ctx->expanded_line, sizeof(ctx->expanded_line))) {
         return; /* History event not found */
     }
+#endif
 
     wordexp_t p;
 
-    status = wordexp(expanded_line, &p, 0);
+    status = wordexp(ctx->expanded_line, &p, 0);
     /* Lexical Analysis & Variable Expansion */
     if (status != 0) {
         FLX_SH_ERR("syntax error: %s\n", worderror(status));
@@ -55,7 +71,7 @@ void flx_sh_execute_line(const char *raw_line) {
 
     /* BUILTIN DELEGATION */
     if (flx_sh_is_builtin(argv[0])) {
-        flx_sh_execute_builtin(argc, argv);
+        ctx->last_exit_code = flx_sh_execute_builtin(ctx, argc, argv);
         wordfree(&p);
         return;
     }
@@ -65,8 +81,9 @@ void flx_sh_execute_line(const char *raw_line) {
 
     if (status == -1) {
         FLX_SH_ERR("%s: command not found\n", argv[0]);
+        ctx->last_exit_code = 127;
     } else if (status != 0) {
-        FLX_SH_ERR("Command exited with status %d\n", status);
+        ctx->last_exit_code = status;
     }
 
     wordfree(&p);
@@ -79,7 +96,7 @@ void flx_sh_execute_line(const char *raw_line) {
 /**
  * @brief Parses a line for ';' separators, obeying quotes, and executes each piece.
  */
-static void flx_sh_split_and_execute(char *line) {
+static void flx_sh_split_and_execute(FlxShellContext_t *ctx, char *line) {
     char *cmd_start = line;
     bool in_dquote = false;
     bool in_squote = false;
@@ -94,7 +111,7 @@ static void flx_sh_split_and_execute(char *line) {
             line[i] = '\0'; /* Null-terminate the string here */
 
             if (strlen(cmd_start) > 0) {
-                flx_sh_execute_line(cmd_start); /* Execute the isolated piece */
+                flx_sh_execute_line(ctx, cmd_start); /* Execute the isolated piece */
             }
 
             cmd_start = &line[i + 1]; /* Advance pointer to the start of the next piece */
@@ -103,68 +120,71 @@ static void flx_sh_split_and_execute(char *line) {
 
     /* Execute the final piece of the line (or the only piece, if no ';' was found) */
     if (strlen(cmd_start) > 0) {
-        flx_sh_execute_line(cmd_start);
+        flx_sh_execute_line(ctx, cmd_start);
     }
 }
+
 
 /* =========================================================================
  * Shell Entry Point
  * ========================================================================= */
-
-/* Group the main shell state arrays into a heap context */
-typedef struct {
-    char prompt[PATH_MAX + 32];   /* Room for PATH_MAX + "felix:>" formatting */
-    char cwd[PATH_MAX];           /* Standard POSIX path limit */
-    char expanded_line[LINE_MAX]; /* Standard POSIX input line limit */
-} FlxMainCtx_t;
-
+#define SHELL_USE_STATIC_CTX
 int flx_sh_main(int argc, char **argv) {
-    char *line;
-
-    /* Allocate the shell's running state on the BSS/Heap */
-    static FlxMainCtx_t context;
-    memset(&context, 0, sizeof(context));
-    FlxMainCtx_t *ctx = &context;
-
+#ifdef SHELL_USE_STATIC_CTX
+    static FlxShellContext_t g_ctx __attribute__((aligned(16)));
+    FlxShellContext_t *ctx = &g_ctx;
+    memset(&g_ctx, 0, sizeof(g_ctx));
+#else
+    /* 1. Allocate context on heap for lifetime safety */
+    FlxShellContext_t *ctx = calloc(1, sizeof(FlxShellContext_t));
     if (!ctx) {
         printf("Felix OS: Out of Memory! Cannot start shell.\n");
         return -1;
     }
+#endif
+
+    ctx->running = true;
 
     printf("\nWelcome to Felix OS!\n");
 
-    /* Initialize Linenoise Features */
+    /* Initialize the getopt context for the shell (avoid passing NULL for string arg) */
+    //getopt_long_r(argc, argv, "", NULL, NULL, &ctx->go_data);
+
+#ifdef CONFIG_USE_TOYBOX
+    char *tb_argv[] = {"sh", NULL};
+    toybox_main(1, tb_argv); 
+#endif
+
     linenoiseHistorySetMaxLen(100);
     linenoiseSetCompletionCallback(flx_sh_completion);
 
-    while (1) {
+    /* 2. Main REPL loop */
+    while (ctx->running) {
         if (getcwd(ctx->cwd, sizeof(ctx->cwd))) {
             snprintf(ctx->prompt, sizeof(ctx->prompt), "felix:%s> ", ctx->cwd);
         } else {
             snprintf(ctx->prompt, sizeof(ctx->prompt), "felix:> ");
         }
 
-        /* Hand over terminal control to linenoise */
-        line = linenoise(ctx->prompt);
-
+        char *line = linenoise(ctx->prompt);
         if (line == NULL) {
-            break; /* EOF or Ctrl+D received */
-        }
+            ctx->running = false;
+        } else {
+            if (line[0] != '\0') {
+                /* Expansion and execution pipeline */
+                if (flx_sh_history_expand(line, ctx->expanded_line, sizeof(ctx->expanded_line))) {
+                    linenoiseHistoryAdd(ctx->expanded_line);
 
-        if (line[0] != '\0') {
-            /* EXPAND FIRST: Pre-process the history tokens */
-            if (flx_sh_history_expand(line, ctx->expanded_line, sizeof(ctx->expanded_line))) {
-
-                /* ADD TO HISTORY: Only save the cleanly expanded command! */
-                linenoiseHistoryAdd(ctx->expanded_line);
-
-                /* EXECUTE: Push it down the pipeline */
-                flx_sh_split_and_execute(ctx->expanded_line);
+                    /* EXECUTE: Push it down the pipeline */
+                    flx_sh_split_and_execute(ctx, ctx->expanded_line);
+                }
             }
+            linenoiseFree(line);
         }
-
-        free(line); /* Free the buffer allocated by linenoise */
     }
-
+#ifndef SHELL_USE_STATIC_CTX
+    free(ctx);
+#endif
+    printf("[Felix] Shell exiting.\n");
     return 0;
 }

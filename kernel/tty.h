@@ -3,16 +3,18 @@
  * @brief POSIX Line Discipline (TTY Shim) for Felix OS.
  */
 
-#ifndef _FLX_TTY_H
-#define _FLX_TTY_H
+#ifndef _FLX_KERNEL_TTY_H
+#define _FLX_KERNEL_TTY_H
 
 #include <stddef.h>
-#include "termios.h"
+#include <termios.h>
+#include <sys/ioctl.h>
 #include "kernel/ring_buffer.h" /* Your existing 128-byte ring buffer */
 
 typedef struct tty {
     /* POSIX Terminal State */
     struct termios termios;
+    struct winsize winsize;
 
     /*
      * The underlying ring buffer for ready-to-read data.
@@ -26,16 +28,12 @@ typedef struct tty {
     size_t edit_len;
 
     /* Number of completed lines available in rx_buffer (for ICANON blocking) */
-    size_t lines_available;
+    //size_t lines_available;
 
     /* Hardware Abstraction Callbacks */
     void (*hw_putc)(void *ctx, char c);
     void *hw_ctx; /* Passed to hw_putc (e.g., pointer to MSS_uart instance) */
 } tty_t;
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /**
  * @brief Initialize the TTY instance with POSIX defaults.
@@ -68,4 +66,4 @@ int tty_ioctl(tty_t *tty, int request, void *arg);
 }
 #endif
 
-#endif /* _FLX_TTY_H */
+#endif /* _FLX_KERNEL_TTY_H */

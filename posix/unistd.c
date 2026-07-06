@@ -4,6 +4,9 @@
 #include <stddef.h>
 #include <errno.h>
 #include <sys/stat.h>
+#include <string.h>
+#include <sys/utsname.h>
+#include <sys/types.h>
 #include "kernel/vfs.h"
 #include "kernel/process.h"
 #include "kernel/syscalls.h"
@@ -163,3 +166,67 @@ int rename(const char *oldpath, const char *newpath) {
     }
     return 0;
 }
+
+/* =========================================================================
+ * POSIX System Information / Hostname Operations
+ * ========================================================================= */
+
+/**
+ * @brief Get the system hostname.
+ */
+int gethostname(char *name, size_t len) {
+    if (!name) {
+        errno = EFAULT;
+        return -1;
+    }
+
+    struct utsname uts;
+    if (sys_uname(&uts) == 0) {
+        strncpy(name, uts.nodename, len);
+        /* Ensure null termination just in case */
+        name[len - 1] = '\0';
+        return 0;
+    }
+
+    return -1;
+}
+
+/**
+ * @brief Set the system hostname.
+ */
+int sethostname(const char *name, size_t len) {
+    (void)name;
+    (void)len;
+
+    /* Felix OS currently hardcodes the hostname in sys_uname.
+     * We return EPERM (Operation not permitted) to safely deny changes. */
+    errno = EPERM;
+    return -1;
+}
+
+/* =========================================================================
+ * POSIX User and Group Identification
+ * ========================================================================= */
+uid_t getuid(void) { return 0; }
+uid_t geteuid(void) { return 0; }
+gid_t getgid(void) { return 0; }
+gid_t getegid(void) { return 0; }
+pid_t getppid(void) { return 1; }
+pid_t getsid(pid_t pid) { return 1; }
+
+/* =========================================================================
+ * POSIX File Ownership (Stubs for flat permissions)
+ * ========================================================================= */
+int chown(const char *pathname, uid_t owner, gid_t group) { return 0; }
+int fchown(int fd, uid_t owner, gid_t group) { return 0; }
+int lchown(const char *pathname, uid_t owner, gid_t group) { return 0; }
+
+/* =========================================================================
+ * POSIX system limits stubs.
+ * ========================================================================= */
+long sysconf(int name) { return -1; }
+long pathconf(const char *path, int name) { return -1; }
+size_t confstr(int name, char *buf, size_t len) { return 0; }
+
+
+

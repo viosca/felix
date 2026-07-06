@@ -6,8 +6,7 @@
 #include "fs/rootfs/flx_fs_root.h"
 #include "fs/flx_fs_ramfs.h"
 #include <sys/stat.h>
-
-#define FLX_MAKEDEV(maj, min) (int)(((maj & 0xFF) << 8) | (min & 0xFF))
+#include <sys/sysmacros.h>
 
 static FlxRamFs_t g_dev_fs;
 
@@ -20,11 +19,11 @@ int flx_fs_dev_init(void) {
 }
 
 int flx_fs_dev_register_chr(const char *name, int major, int minor, const FlxVfsOps_t *ops) {
-    return flx_ramfs_create_node(&g_dev_fs, name, S_IFCHR | 0666, FLX_MAKEDEV(major, minor), ops);
+    return flx_ramfs_create_node(&g_dev_fs, name, S_IFCHR | 0666, makedev(major, minor), ops);
 }
 
 int flx_fs_dev_register_blk(const char *name, int major, int minor, const FlxVfsOps_t *ops) {
-    return flx_ramfs_create_node(&g_dev_fs, name, S_IFBLK | 0666, FLX_MAKEDEV(major, minor), ops);
+    return flx_ramfs_create_node(&g_dev_fs, name, S_IFBLK | 0666, makedev(major, minor), ops);
 }
 
 int flx_fs_dev_unregister(const char *name) {

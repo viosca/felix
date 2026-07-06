@@ -4,17 +4,54 @@
 #include <string.h>
 #include <stddef.h>
 #include <errno.h>
+#include <fcntl.h>
 
 #include "kernel/vfs.h"
 #include "kernel/process.h"
 #include "kernel/binfmt.h"
 #include "kernel/kmalloc.h"
 
+/* =========================================================================
+ * VFS Macros & Boilerplate Routing
+ * ========================================================================= */
+
 /* Helper macro to determine if a node manages its own internal filesystem tree.
  * Tests for the explicit OPAQUE flag, or falls back to checking for an .open hook. */
 #define IS_OPAQUE(node) (((node)->kflags & FLX_VFS_KFLAG_OPAQUE_NODE) || ((node)->ops && (node)->ops->open))
 
+/**
+ * @brief Handles boilerplate for path-based VFS delegation.
+ * If a custom hook exists, it routes to it. If the driver is opaque and 
+ * missing the hook, it returns the specified error. Otherwise, it falls through.
+ */
+#define VFS_ROUTE_PATH(node, path, op_name, opaque_err, ...) \
+    do { \
+        if (!(node)) return -EINVAL; \
+        if ((node)->ops && (node)->ops->op_name) { \
+            return (node)->ops->op_name((node), (path), __VA_ARGS__); \
+        } \
+        if ((path) && *(path) != '\0') return (opaque_err); \
+    } while (0)
+
+/**
+ * @brief Handles boilerplate for file-descriptor-based VFS delegation.
+ * If a custom hook exists, it routes to it. Otherwise, it falls through.
+ */
+#define VFS_ROUTE_FD(file, op_name, ...) \
+    do { \
+        if (!(file) || !(file)->node) return -EINVAL; \
+        if ((file)->node->ops && (file)->node->ops->op_name) { \
+            return (file)->node->ops->op_name((file), __VA_ARGS__); \
+        } \
+    } while (0)
+
+
+/* =========================================================================
+ * Core State & Filesystem Registry
+ * ========================================================================= */
+
 static FlxVfsNode_t *global_root_node = NULL;
+static FlxFsType_t *registered_filesystems = NULL;
 
 void flx_vfs_root_set(FlxVfsNode_t *root) {
     global_root_node = root;
@@ -23,12 +60,6 @@ void flx_vfs_root_set(FlxVfsNode_t *root) {
 FlxVfsNode_t *flx_vfs_root_get(void) {
     return global_root_node;
 }
-
-/* =========================================================================
- * VFS Filesystem Registry
- * ========================================================================= */
-
-static FlxFsType_t *registered_filesystems = NULL;
 
 int flx_vfs_register_fs(FlxFsType_t *fs) {
     if (!fs || !fs->name || !fs->mount) return -EINVAL;
@@ -165,13 +196,31 @@ char *flx_vfs_get_path(FlxVfsNode_t *node, char *buf, size_t size) {
 
     FlxVfsNode_t *curr = node;
     while (curr && curr->parent != curr && curr->name) {
-        size_t len = strlen(curr->name);
-        if (ptr - buf < (ptrdiff_t)(len + 1)) return NULL;
+        const char *name_to_use = curr->name;
 
-        ptr -= len;
-        memcpy(ptr, curr->name, len);
-        ptr--;
-        *ptr = '/';
+        /* Detect if curr is the root of a mounted filesystem.
+         * If so, we must use the name of the original mount point instead! */
+        if (curr->parent && S_ISDIR(curr->parent->mode) && !IS_OPAQUE(curr->parent) && curr->parent->dir.children) {
+            FlxVfsNode_t **children = curr->parent->dir.children;
+            for (int i = 0; children[i] != NULL; i++) {
+                if (children[i]->mount_overlay == curr) {
+                    name_to_use = children[i]->name;
+                    break;
+                }
+            }
+        }
+
+        size_t len = strlen(name_to_use);
+
+        /* Skip zero-length names (prevents double slashes '//') */
+        if (len > 0) {
+            if (ptr - buf < (ptrdiff_t)(len + 1)) return NULL;
+
+            ptr -= len;
+            memcpy(ptr, name_to_use, len);
+            ptr--;
+            *ptr = '/';
+        }
 
         curr = curr->parent;
     }
@@ -253,39 +302,60 @@ FlxVfsNode_t *flx_vfs_path_resolve(FlxVfsNode_t *start_node, const char *path, c
 }
 
 /* =========================================================================
- * VFS I/O & Stat Implementation
+ * Core I/O (Open, Read, Write)
  * ========================================================================= */
 
-int flx_vfs_stat(FlxVfsNode_t *node, struct stat *st) {
-    if (!node || !st) return -EINVAL;
+int flx_vfs_open_path(FlxVfsNode_t *base_dir, const char *path, int flags, int mode, FlxVfsNode_t **out_node) {
+    const char *remainder = NULL;
+    FlxVfsNode_t *node = flx_vfs_path_resolve(base_dir, path, &remainder);
 
-    memset(st, 0, sizeof(struct stat));
+    if (!node) return -ENOENT;
 
-    /* Ops->getattr is now called in sys_stat directly so it can pass the remainder path!
-     * This generic fallback is for in-memory nodes only. */
-    
-    st->st_mode = node->mode;
-    st->st_size = node->size;
+    /* 1. Dynamic Filesystem Routing (e.g., FatFs) */
+    if (remainder && *remainder != '\0') {
+        if (node->ops && node->ops->open) {
+            /* The driver handles dynamic O_CREAT internally if passed in flags */
+            return node->ops->open(node, remainder, flags, out_node);
+        }
 
-    /* Ensure we only cast node->data to FlxLinkedExec_t if it's a built-in static node!
-     * (!node->ops guarantees it isn't an opaque driver context or RAMFS node) */
-    if (S_ISREG(node->mode) && !node->ops && node->data) {
-        FlxLinkedExec_t *payload = (FlxLinkedExec_t *)node->data;
-        if (payload->start_ptr && payload->end_ptr) {
-            st->st_size = (size_t)payload->end_ptr - (size_t)payload->start_ptr;
+        /* 2. Static RAMFS Routing: Try to create the missing file if O_CREAT is set */
+        if (flags & O_CREAT) {
+            int ret = flx_vfs_create(base_dir, path, mode);
+            if (ret < 0 && ret != -EEXIST) return ret;
+
+            /* Re-resolve now that it exists */
+            remainder = NULL;
+            node = flx_vfs_path_resolve(base_dir, path, &remainder);
+            if (!node || (remainder && *remainder != '\0')) return -ENOENT;
+        } else {
+            return -ENOENT;
         }
     }
 
-    if (S_ISCHR(node->mode) || S_ISBLK(node->mode)) {
-        st->st_rdev = node->dev_id;
+    /* At this point, 'node' is fully resolved (Static RAMFS or DevFS file) */
+    if (S_ISDIR(node->mode) && ((flags & O_WRONLY) || (flags & O_RDWR))) {
+        return -EISDIR; /* POSIX: Cannot open directories for writing */
     }
 
-    st->st_uid = 0;
-    st->st_gid = 0;
-    st->st_nlink = S_ISDIR(node->mode) ? 2 : 1;
-    st->st_blksize = 1024;
-    st->st_blocks = (st->st_size + 511) / 512;
+    /* 3. Handle O_TRUNC for existing static files */
+    if ((flags & O_TRUNC) && ((flags & O_WRONLY) || (flags & O_RDWR))) {
+         if (node->ops && node->ops->truncate) {
+             node->ops->truncate(node, remainder ? remainder : "", 0);
+         }
+    }
 
+    /* 4. Character/Block Devices might have hardware initialization in their open hook */
+    if (node->ops && node->ops->open) {
+        int err = node->ops->open(node, NULL, flags, out_node);
+        if (err < 0) return err;
+
+        /* If the driver succeeded but didn't allocate a specialized node, use the generic one */
+        if (!*out_node) *out_node = node;
+        return 0;
+    }
+
+    /* Default success for standard RAMFS files */
+    *out_node = node;
     return 0;
 }
 
@@ -294,7 +364,7 @@ ssize_t flx_vfs_read(FlxVfsNode_t *node, void *buf, size_t count, off_t offset) 
 
     if (node->ops && node->ops->read) {
         /* Pack the transient offset state into a FlxFile_t before calling the driver */
-        FlxFile_t temp_file = {
+        FlxVfsFile_t temp_file = {
             .node = node,
             .offset = offset,
             .flags = 0 /* Default for simple path operations */
@@ -332,7 +402,7 @@ ssize_t flx_vfs_write(FlxVfsNode_t *node, const void *buf, size_t count, off_t o
 
     if (node->ops && node->ops->write) {
         /* Pack the transient offset state into a FlxFile_t before calling the driver */
-        FlxFile_t temp_file = {
+        FlxVfsFile_t temp_file = {
             .node = node,
             .offset = offset,
             .flags = 0 /* Default for simple path operations */
@@ -344,19 +414,140 @@ ssize_t flx_vfs_write(FlxVfsNode_t *node, const void *buf, size_t count, off_t o
 }
 
 /* =========================================================================
- * POSIX Directory and Link Operations
+ * Attribute Pipeline (Stat, Chmod, Truncate)
  * ========================================================================= */
 
-int flx_vfs_mkdir(const char *path, mode_t mode) {
+int flx_vfs_stat_path(FlxVfsNode_t *base_dir, const char *path, struct stat *st, int flags) {
     const char *remainder = NULL;
-    FlxVfsNode_t *node = flx_vfs_path_resolve(flx_vfs_root_get(), path, &remainder);
+    FlxVfsNode_t *node = flx_vfs_path_resolve(base_dir, path, &remainder);
+
+    if (!node) return -ENOENT;
+
+    /* Dynamic Filesystem Routing (e.g., FatFs) */
+    if (node->ops && node->ops->getattr) {
+        /* Note: We drop POSIX 'flags' (like AT_SYMLINK_NOFOLLOW) here for now,
+         * as FatFs doesn't support symlinks anyway */
+        return node->ops->getattr(node, remainder, st);
+    } else if (remainder && *remainder != '\0') {
+        return -ENOENT;
+    }
+
+    /* Static RAMFS routing */
+    if (flx_vfs_stat(node, st) < 0) return -EIO;
+    return 0;
+}
+
+int flx_vfs_stat(FlxVfsNode_t *node, struct stat *st) {
+    if (!node || !st) return -EINVAL;
+
+    memset(st, 0, sizeof(struct stat));
+
+    /* Ops->getattr is now called in sys_stat directly so it can pass the remainder path!
+     * This generic fallback is for in-memory nodes only. */
+    
+    st->st_mode = node->mode;
+    st->st_size = node->size;
+
+    /* Ensure we only cast node->data to FlxLinkedExec_t if it's a built-in static node!
+     * (!node->ops guarantees it isn't an opaque driver context or RAMFS node) */
+    if (S_ISREG(node->mode) && !node->ops && node->data) {
+        FlxLinkedExec_t *payload = (FlxLinkedExec_t *)node->data;
+        if (payload->start_ptr && payload->end_ptr) {
+            st->st_size = (size_t)payload->end_ptr - (size_t)payload->start_ptr;
+        }
+    }
+
+    if (S_ISCHR(node->mode) || S_ISBLK(node->mode)) {
+        st->st_rdev = node->dev_id;
+    }
+
+    st->st_uid = 0;
+    st->st_gid = 0;
+    st->st_nlink = S_ISDIR(node->mode) ? 2 : 1;
+    st->st_blksize = 1024;
+    st->st_blocks = (st->st_size + 511) / 512;
+
+    return 0;
+}
+
+int flx_vfs_fstat(FlxVfsFile_t *file, struct stat *st) {
+    if (!file || !file->node || !st) return -EINVAL;
+
+    FlxVfsNode_t *node = file->node;
+
+    /* Fill the baseline attributes using the standard VFS helper */
+    int err = flx_vfs_stat(node, st);
+    if (err < 0) return err;
+
+    /* Dynamic Filesystem Routing for OPEN files
+     * Pass the file object itself so the driver can inspect private state
+     * (like a FatFs FIL struct) to get live, un-flushed sizes. */
+    if (node->ops && node->ops->fgetattr) {
+        return node->ops->fgetattr(file, st);
+    }
+
+    return 0;
+}
+
+int flx_vfs_chmod(FlxVfsNode_t *node, mode_t mode) {
+    if (!node) return -EINVAL;
+
+    /* In-memory RAM node fallback: apply the mode, preserving file type bits */
+    node->mode = (node->mode & S_IFMT) | (mode & 07777);
+    return 0;
+}
+
+int flx_vfs_chmod_path(FlxVfsNode_t *node, const char *path, mode_t mode) {
+    /* Route to ops->chmod, return 0 (success stub) if opaque, or fall through */
+    VFS_ROUTE_PATH(node, path, chmod, 0, mode);
+    return flx_vfs_chmod(node, mode);
+}
+
+int flx_vfs_fchmod(FlxVfsFile_t *file, mode_t mode) {
+    VFS_ROUTE_FD(file, fchmod, mode);
+    return flx_vfs_chmod(file->node, mode);
+}
+
+int flx_vfs_truncate(FlxVfsNode_t *node, off_t length) {
+    if (!node) return -EINVAL;
+    if (S_ISDIR(node->mode)) return -EISDIR; /* Cannot truncate directories */
+
+    /* * In-memory RAM node fallback:
+     * To fully implement this, you would also add memory management here:
+     * if (length == 0) { free(node->data); node->data = NULL; }
+     * else if (length != node->size) { node->data = realloc(node->data, length); }
+     */
+
+    node->size = length;
+    return 0;
+}
+
+int flx_vfs_truncate_path(FlxVfsNode_t *node, const char *path, off_t length) {
+    /* Route to ops->truncate, error out with -ENOTSUP if opaque, or fall through */
+    VFS_ROUTE_PATH(node, path, truncate, -ENOTSUP, length);
+    return flx_vfs_truncate(node, length);
+}
+
+int flx_vfs_ftruncate(FlxVfsFile_t *file, off_t length) {
+    VFS_ROUTE_FD(file, ftruncate, length);
+    return flx_vfs_truncate(file->node, length);
+}
+
+/* =========================================================================
+ * Directory & Topology Operations
+ * ========================================================================= */
+
+int flx_vfs_mkdir(FlxVfsNode_t *base_dir, const char *path, mode_t mode) {
+    const char *remainder = NULL;
+    FlxVfsNode_t *node = flx_vfs_path_resolve(base_dir, path, &remainder);
 
     if (!node) return -ENOENT;
     if (!remainder || *remainder == '\0') return -EEXIST;
 
     /* If this is the static RAMFS, standard mkdir doesn't do "mkdir -p"
-     * If the remainder has a slash, an intermediate dir is missing. */
-    if (!node->ops && strchr(remainder, '/')) return -ENOENT;
+     * If the remainder has a slash (that isn't just a trailing slash), an intermediate dir is missing. */
+    const char *slash = strchr(remainder, '/');
+    if (!node->ops && slash && *(slash + 1) != '\0') return -ENOENT;
 
     /* Pass the remainder path to the filesystem driver */
     if (node->ops && node->ops->mkdir) {
@@ -366,13 +557,15 @@ int flx_vfs_mkdir(const char *path, mode_t mode) {
     return -EROFS; /* Filesystem is read-only or doesn't support dynamic creation */
 }
 
-int flx_vfs_create(const char *path, mode_t mode) {
+int flx_vfs_create(FlxVfsNode_t *base_dir, const char *path, mode_t mode) {
     const char *remainder = NULL;
-    FlxVfsNode_t *node = flx_vfs_path_resolve(flx_vfs_root_get(), path, &remainder);
+    FlxVfsNode_t *node = flx_vfs_path_resolve(base_dir, path, &remainder);
 
     if (!node) return -ENOENT;
     if (!remainder || *remainder == '\0') return -EEXIST;
-    if (!node->ops && strchr(remainder, '/')) return -ENOENT;
+
+    const char *slash = strchr(remainder, '/');
+    if (!node->ops && slash && *(slash + 1) != '\0') return -ENOENT;
 
     if (node->ops && node->ops->create) {
         return node->ops->create(node, remainder, mode);
@@ -380,13 +573,15 @@ int flx_vfs_create(const char *path, mode_t mode) {
     return -EROFS;
 }
 
-int flx_vfs_mknod(const char *path, mode_t mode, dev_t dev) {
+int flx_vfs_mknod(FlxVfsNode_t *base_dir, const char *path, mode_t mode, dev_t dev) {
     const char *remainder = NULL;
-    FlxVfsNode_t *node = flx_vfs_path_resolve(flx_vfs_root_get(), path, &remainder);
+    FlxVfsNode_t *node = flx_vfs_path_resolve(base_dir, path, &remainder);
 
     if (!node) return -ENOENT;
     if (!remainder || *remainder == '\0') return -EEXIST;
-    if (!node->ops && strchr(remainder, '/')) return -ENOENT;
+
+    const char *slash = strchr(remainder, '/');
+    if (!node->ops && slash && *(slash + 1) != '\0') return -ENOENT;
 
     if (node->ops && node->ops->mknod) {
         return node->ops->mknod(node, remainder, mode, dev);
@@ -394,9 +589,9 @@ int flx_vfs_mknod(const char *path, mode_t mode, dev_t dev) {
     return -EROFS;
 }
 
-int flx_vfs_rmdir(const char *path) {
+int flx_vfs_rmdir(FlxVfsNode_t *base_dir, const char *path) {
     const char *remainder = NULL;
-    FlxVfsNode_t *target = flx_vfs_path_resolve(flx_vfs_root_get(), path, &remainder);
+    FlxVfsNode_t *target = flx_vfs_path_resolve(base_dir, path, &remainder);
 
     if (!target) return -ENOENT;
 
@@ -418,9 +613,9 @@ int flx_vfs_rmdir(const char *path) {
     return -EROFS;
 }
 
-int flx_vfs_unlink(const char *path) {
+int flx_vfs_unlink(FlxVfsNode_t *base_dir, const char *path) {
     const char *remainder = NULL;
-    FlxVfsNode_t *target = flx_vfs_path_resolve(flx_vfs_root_get(), path, &remainder);
+    FlxVfsNode_t *target = flx_vfs_path_resolve(base_dir, path, &remainder);
 
     if (!target) return -ENOENT;
 
@@ -442,38 +637,45 @@ int flx_vfs_unlink(const char *path) {
     return -EROFS;
 }
 
-int flx_vfs_link(const char *oldpath, const char *newpath) {
+int flx_vfs_link(FlxVfsNode_t *old_dir, const char *oldpath, FlxVfsNode_t *new_dir, const char *newpath) {
     const char *old_rem = NULL;
-    FlxVfsNode_t *target = flx_vfs_path_resolve(flx_vfs_root_get(), oldpath, &old_rem);
-    if (!target || (old_rem && *old_rem != '\0')) return -ENOENT;
+    FlxVfsNode_t *old_target = flx_vfs_path_resolve(old_dir, oldpath, &old_rem);
+    if (!old_target) return -ENOENT;
 
     const char *new_rem = NULL;
-    FlxVfsNode_t *new_parent = flx_vfs_path_resolve(flx_vfs_root_get(), newpath, &new_rem);
-    if (!new_parent) return -ENOENT;
+    FlxVfsNode_t *new_target = flx_vfs_path_resolve(new_dir, newpath, &new_rem);
+    if (!new_target) return -ENOENT;
     if (!new_rem || *new_rem == '\0') return -EEXIST;
 
-    if (new_parent->ops && new_parent->ops->link) {
-        return new_parent->ops->link(new_parent, new_rem, target);
+    /* Check for cross-device link attempt for opaque file systems */
+    if ((old_rem && *old_rem != '\0') || (new_rem && *new_rem != '\0')) {
+        if (old_target != new_target) return -EXDEV;
+    }
+
+    if (new_target->ops && new_target->ops->link) {
+        return new_target->ops->link(old_target, old_rem, new_target, new_rem);
     }
     return -EROFS;
 }
 
-int flx_vfs_rename(const char *oldpath, const char *newpath) {
+int flx_vfs_rename(FlxVfsNode_t *old_dir, const char *oldpath, FlxVfsNode_t *new_dir, const char *newpath) {
     const char *old_rem = NULL;
     const char *new_rem = NULL;
 
-    FlxVfsNode_t *old_target = flx_vfs_path_resolve(flx_vfs_root_get(), oldpath, &old_rem);
-    FlxVfsNode_t *new_target = flx_vfs_path_resolve(flx_vfs_root_get(), newpath, &new_rem);
+    FlxVfsNode_t *old_target = flx_vfs_path_resolve(old_dir, oldpath, &old_rem);
+    FlxVfsNode_t *new_target = flx_vfs_path_resolve(new_dir, newpath, &new_rem);
 
     if (!old_target || !new_target) return -ENOENT;
 
-    /* Check for cross-device rename attempt (e.g., moving from /mnt/sd0 to /bin) */
-    if (old_target != new_target) {
-        return -EXDEV; /* POSIX standard: Invalid cross-device link */
+    /* Check for cross-device rename attempt (e.g., moving from /mnt/sd0 to /mnt/sd1) */
+    if ((old_rem && *old_rem != '\0') || (new_rem && *new_rem != '\0')) {
+        if (old_target != new_target) {
+            return -EXDEV; /* POSIX standard: Invalid cross-device link */
+        }
     }
 
     if (old_target->ops && old_target->ops->rename) {
-        return old_target->ops->rename(old_target, old_rem, new_rem);
+        return old_target->ops->rename(old_target, old_rem, new_target, new_rem);
     }
 
     return -EROFS;

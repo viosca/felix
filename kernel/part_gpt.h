@@ -2,8 +2,8 @@
  * @file felix/include/kernel/part_gpt.h
  * @brief GUID Partition Table (GPT) parsing subsystem.
  */
-#ifndef PART_GPT_H
-#define PART_GPT_H
+#ifndef _FLX_KERNEL_PART_GPT_H
+#define _FLX_KERNEL_PART_GPT_H
 
 #include <stdint.h>
 #include "kernel/vfs.h"
@@ -24,4 +24,4 @@ int part_parse_gpt(const char *raw_name, int major, const FlxVfsOps_t *ops,
                    FlxPartition_t *part_array, int max_partitions,
                    int (*read_sector)(uint64_t lba, uint8_t *buf));
 
-#endif /* PART_GPT_H */
+#endif /* _FLX_KERNEL_PART_GPT_H */

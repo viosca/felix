@@ -9,4 +9,4 @@
 	url = https://github.com/viosca/FreeRTOS-Kernel.git
 [submodule "external/toybox"]
 	path = external/toybox
-	url = https://github.com/landley/toybox.git
+	url = https://github.com/viosca/toybox.git

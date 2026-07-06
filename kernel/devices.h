@@ -41,10 +41,10 @@ typedef enum {
  */
 typedef struct {
     /* --- Identity --- */
-    int id; /* Kernel Pool ID */
+    int id; /**< Kernel Pool ID */
     FlxDevType_t type;     /**< The type of hardware driver to use */
 
-    mss_uart_instance_t *uart;
+    mss_uart_instance_t *uart; /**< */
 
     /* * The TTY Line Discipline.
      * NOTE: The RX ring buffer is located inside the tty struct
@@ -53,9 +53,9 @@ typedef struct {
     tty_t tty;
 
     /* --- Buffers --- */
-    ring_buffer_t tx_buffer;
+    ring_buffer_t tx_buffer; /**< uart tx ring buffer. */
 
-    void *rx_semaphore;
+    void *rx_semaphore; /**< */
 
 } FlxDev_t;
 
