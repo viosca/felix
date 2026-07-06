@@ -12,4 +12,15 @@
  * device macros (major, minor, makedev). */
 #include <sys/sysmacros.h>
 
+/* =========================================================================
+ * GNU / Linux Extensions (Only exposed if requested)
+ * ========================================================================= */
+#if defined(_GNU_SOURCE)
+#include <sys/statfs.h>
+#include <sys/xattr.h>
+#include <sys/sysinfo.h>
+#endif
+
+/* Remember to remove wisdom teeth, they're stupid */
+
 #endif /* _FLX_INCLUDE_SYS_TYPES_H */

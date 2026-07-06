@@ -7,26 +7,29 @@
 
 #include <termios.h>
 
+#ifndef CTRL
+#define CTRL(x) (x & 037)
+#endif
 /* =========================================================================
  * Standard Terminal Control Character Defaults
  * ========================================================================= */
-#define CEOF        ('d' & 037) /* Ctrl+D */
+#define CEOF        CTRL('d')
 #define CEOL        0
 #define CERASE      0177        /* DEL */
-#define CINTR       ('c' & 037) /* Ctrl+C */
-#define CSTATUS     ('t' & 037) /* Ctrl+T */
-#define CKILL       ('u' & 037) /* Ctrl+U */
+#define CINTR       CTRL('c')
+#define CSTATUS     CTRL('t')
+#define CKILL       CTRL('u')
 #define CMIN        1
 #define CQUIT       034         /* FS, ^\ */
-#define CSUSP       ('z' & 037) /* Ctrl+Z */
+#define CSUSP       CTRL('z')
 #define CTIME       0
-#define CDSUSP      ('y' & 037) /* Ctrl+Y */
-#define CSTART      ('q' & 037) /* Ctrl+Q */
-#define CSTOP       ('s' & 037) /* Ctrl+S */
-#define CLNEXT      ('v' & 037) /* Ctrl+V */
-#define CDISCARD    ('o' & 037) /* Ctrl+O */
-#define CWERASE     ('w' & 037) /* Ctrl+W */
-#define CREPRINT    ('r' & 037) /* Ctrl+R */
+#define CDSUSP      CTRL('y')
+#define CSTART      CTRL('q')
+#define CSTOP       CTRL('s')
+#define CLNEXT      CTRL('v')
+#define CDISCARD    CTRL('o')
+#define CWERASE     CTRL('w')
+#define CREPRINT    CTRL('r')
 #define CEOT        CEOF
 
 /* =========================================================================
