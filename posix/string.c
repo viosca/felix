@@ -23,3 +23,11 @@ char *strcasestr(const char *haystack, const char *needle) {
     }
     return NULL;
 }
+
+char *basename(char *path) {
+    char *p;
+    if (!path || !*path) return ".";
+
+    p = strrchr(path, '/');
+    return p ? p + 1 : path;
+}

@@ -30,7 +30,7 @@
              struct getopt_data * __data);
 #endif
 
-//#define CONFIG_USE_TOYBOX
+#define CONFIG_USE_TOYBOX
 /* Forward declaration for optional ToyBox */
 #ifdef CONFIG_USE_TOYBOX
 extern int toybox_main(int argc, char **argv);

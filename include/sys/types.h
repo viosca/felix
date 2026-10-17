@@ -5,21 +5,17 @@
 #ifndef _FLX_INCLUDE_SYS_TYPES_H
 #define _FLX_INCLUDE_SYS_TYPES_H
 
-/* 1. Pull in Newlib's base types.h */
+/* Pull in Newlib's base types.h FIRST so ssize_t is defined */
 #include_next <sys/types.h>
 
-/* 2. Linux and Toybox expect sys/types.h to automatically provide
- * device macros (major, minor, makedev). */
-#include <sys/sysmacros.h>
-
-/* =========================================================================
- * GNU / Linux Extensions (Only exposed if requested)
- * ========================================================================= */
-#if defined(_GNU_SOURCE)
+/* Pull in the required Linux extensions unconditionally */
 #include <sys/statfs.h>
 #include <sys/xattr.h>
 #include <sys/sysinfo.h>
-#endif
+
+/* Linux and Toybox expect sys/types.h to automatically provide
+ * device macros (major, minor, makedev). */
+#include <sys/sysmacros.h>
 
 /* Remember to remove wisdom teeth, they're stupid */
 

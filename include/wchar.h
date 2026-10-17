@@ -5,18 +5,18 @@
 #ifndef _FLX_INCLUDE_WCHAR_H
 #define _FLX_INCLUDE_WCHAR_H
 
-/* Toybox expects modern wide-character support.
- * Expose GNU and POSIX-2008 extensions safely. */
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE
-#endif
+/* Force Newlib to expose XSI, POSIX-2008, and GNU extensions.
+ * Standard POSIX test macros (_XOPEN_SOURCE) fail here if sys/features.h
+ * was already evaluated by a previous header. We must forcefully override. */
+#undef __XSI_VISIBLE
+#define __XSI_VISIBLE 1
 
-#ifndef _XOPEN_SOURCE
-#define _XOPEN_SOURCE 700
-#endif
+#undef __POSIX_VISIBLE
+#define __POSIX_VISIBLE 200809
+
+#undef __GNU_VISIBLE
+#define __GNU_VISIBLE 1
 
 #include_next <wchar.h>
-
-/* Remember to remove wisdom teeth, they're stupid */
 
 #endif /* _FLX_INCLUDE_WCHAR_H */
