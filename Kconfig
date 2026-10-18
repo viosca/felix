@@ -1,0 +1,229 @@
+# Felix OS Root Kconfig Specification
+
+mainmenu "Felix OS Configuration"
+
+# =============================================================================
+# Architecture Selection
+# =============================================================================
+menu "Target Architecture"
+
+choice
+    prompt "Target CPU Architecture"
+    default ARCH_RISCV64
+
+config ARCH_RISCV64
+    bool "RISC-V 64-bit (RV64GC)"
+    help
+      Select for 64-bit RISC-V targets such as the Microchip PolarFire SoC.
+
+config ARCH_ARM_CORTEX_M
+    bool "ARM Cortex-M (32-bit)"
+    help
+      Select for 32-bit ARM Cortex-M targets such as NXP LPC54S018 (M4F)
+      or ALIF Ensemble (M55).
+
+config ARCH_AARCH64
+    bool "ARM AArch64 (64-bit)"
+    help
+      Select for 64-bit ARM Cortex-A targets such as Raspberry Pi (3/4/5).
+
+endchoice
+
+config ARCH_NAME
+    string
+    default "riscv64" if ARCH_RISCV64
+    default "arm" if ARCH_ARM_CORTEX_M
+    default "aarch64" if ARCH_AARCH64
+
+endmenu
+
+# =============================================================================
+# Target Platform & Board
+# =============================================================================
+menu "Target Platform & Board"
+
+choice
+    prompt "Target Board"
+    default BOARD_MPFS_DISCO_KIT
+
+config BOARD_MPFS_DISCO_KIT
+    bool "Microchip PolarFire SoC Discovery Kit"
+    depends on ARCH_RISCV64
+    help
+      Microchip PolarFire SoC Discovery Kit (MPFS-DISCO-KIT).
+
+config BOARD_MPFS_ICICLE_KIT
+    bool "Microchip PolarFire SoC Icicle Kit"
+    depends on ARCH_RISCV64
+    help
+      Microchip PolarFire SoC Icicle Kit (MPFS-ICICLE-KIT-ES).
+
+config BOARD_LPC54S018
+    bool "NXP LPC54S018 IoT Module / EVK"
+    depends on ARCH_ARM_CORTEX_M
+    help
+      NXP LPC54S018 Cortex-M4F development board.
+
+config BOARD_ALIF_ENSEMBLE
+    bool "ALIF Ensemble DevKit (E6/E7)"
+    depends on ARCH_ARM_CORTEX_M
+    help
+      ALIF Semiconductor Ensemble DevKit.
+
+config BOARD_RPI
+    bool "Raspberry Pi"
+    depends on ARCH_AARCH64
+    help
+      Raspberry Pi 3, 4, or Compute Module 4.
+
+endchoice
+
+endmenu
+
+# =============================================================================
+# Memory Model & Execution Environment
+# =============================================================================
+menu "Memory Model & Execution Profile"
+
+choice
+    prompt "Memory Target Profile"
+    default MEM_PROFILE_DDR
+
+config MEM_PROFILE_LIM
+    bool "LIM Only (Minimal SRAM, <512 KB)"
+    help
+      Run monolithic kernel entirely from SRAM/LIM scratchpad memory.
+      Optimized for deterministic real-time control.
+      Disables dynamic ELF loading and external tools.
+
+config MEM_PROFILE_DDR
+    bool "DDR / External SDRAM (High Capacity)"
+    help
+      Run kernel and user applications from DDR memory space.
+      Enables dynamic ELF loading, full POSIX, and external Toybox.
+
+config MEM_PROFILE_AMP
+    bool "Asymmetric Multiprocessing (AMP)"
+    help
+      Heterogeneous core partitioning. Real-time control cores run
+      from SRAM/LIM; supervisor core runs Felix in DDR.
+
+endchoice
+
+config HEAP_SIZE_BYTES
+    int "Linker Heap Size (in bytes)"
+    default 1024 if MEM_PROFILE_LIM
+    default 33554432 if MEM_PROFILE_DDR
+    default 8388608 if MEM_PROFILE_AMP
+    help
+      Size of the physical heap segment (__heap_start to __heap_end).
+
+endmenu
+
+# =============================================================================
+# Kernel Subsystems & OSAL
+# =============================================================================
+menu "Kernel Subsystems"
+
+config FELIX_VFS
+    bool "Virtual File System (VFS)"
+    default y
+    help
+      Enables POSIX Virtual File System node resolution and file descriptors.
+
+config FELIX_VFS_MAX_OPEN_FILES
+    int "Maximum Open File Descriptors per Process"
+    depends on FELIX_VFS
+    default 32
+
+config FELIX_FATFS
+    bool "FAT32 / exFAT Filesystem Support"
+    depends on FELIX_VFS
+    default y
+    help
+      Enables ChaN FatFs VFS integration for SD cards and block storage.
+
+config FELIX_BLK_MANAGER
+    bool "Storage Block Device Manager"
+    depends on FELIX_VFS
+    default y
+    help
+      Enables partition parsing (MBR / GPT) and block device handling.
+
+config FELIX_OSAL_FREERTOS
+    bool "FreeRTOS Scheduling & Synchronization Engine"
+    default y
+    help
+      Use FreeRTOS as the underlying real-time kernel engine.
+
+endmenu
+
+# =============================================================================
+# POSIX API Layer
+# =============================================================================
+menu "POSIX Compatibility Layer"
+
+config FELIX_POSIX
+    bool "Enable POSIX System Calls & Shims"
+    default y
+    help
+      Provides POSIX standard C functions (unistd, stat, fcntl, time).
+
+config FELIX_FREERTOS_PLUS_POSIX
+    bool "Enable FreeRTOS+POSIX Engine"
+    depends on FELIX_POSIX && FELIX_OSAL_FREERTOS
+    default y
+    help
+      Integrates official FreeRTOS-Plus-POSIX for pthreads, mutexes,
+      and semaphores.
+
+endmenu
+
+# =============================================================================
+# Dynamic Loading & Shared Libraries
+# =============================================================================
+menu "Dynamic Loading & Shared Libraries"
+
+config FELIX_ELF_LOADER
+    bool "Position-Independent Dynamic ELF Loader (PIE)"
+    depends on MEM_PROFILE_DDR || MEM_PROFILE_AMP
+    default y
+    help
+      Enables loading external user binaries from VFS (/bin) into dynamic RAM
+      at runtime.
+
+config FELIX_SHARED_LIBRARIES
+    bool "Dynamic Shared Libraries & Plugins (dlopen/dlsym)"
+    depends on FELIX_ELF_LOADER
+    default y
+    help
+      Enables kernel symbol export and runtime driver/extension module loading.
+
+endmenu
+
+# =============================================================================
+# Shell & User Space Utilities
+# =============================================================================
+menu "Shell & Utilities"
+
+config FELIX_SHELL
+    bool "Interactive Felix Shell (flx_sh)"
+    default y
+    help
+      Built-in command-line interface.
+
+config FELIX_SHELL_LINENOISE
+    bool "Linenoise Command-Line Editing & History"
+    depends on FELIX_SHELL
+    default y
+    help
+      Enables tab-completion, history, and cursor movement in shell.
+
+config FELIX_TOYBOX
+    bool "Toybox Utility Suite"
+    default y
+    help
+      Enables Toybox command-line utilities. In DDR mode, Toybox runs
+      externally via the ELF loader from /bin/toybox on the SD card.
+
+endmenu

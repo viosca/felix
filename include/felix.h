@@ -1,6 +1,7 @@
 #ifndef FELIX_OS_H
 #define FELIX_OS_H
 
+#include "autoconf.h"
 #include "drivers/flx_serial_core.h"
 
 /**
