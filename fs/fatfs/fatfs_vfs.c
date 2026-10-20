@@ -56,6 +56,9 @@ static int fat_to_errno(FRESULT res) {
         case FR_LOCKED:              return -EBUSY;
         case FR_NOT_ENOUGH_CORE:     return -ENOMEM;
         case FR_TOO_MANY_OPEN_FILES: return -ENFILE;
+        case FR_INVALID_DRIVE:       return -ENODEV;
+        case FR_INVALID_NAME:
+        case FR_INVALID_PARAMETER:   return -EINVAL;
         default:                     return -EIO;
     }
 }
@@ -237,6 +240,24 @@ static int fatfs_vfs_readdir(FlxVfsNode_t *node, struct dirent *entry, int index
     if (!S_ISDIR(node->mode)) return -ENOTDIR;
     
     FF_DIR *dj = (FF_DIR *)node->data;
+
+    /* Synthesize standard POSIX dot entries */
+    if (index == 0) {
+        f_readdir(dj, NULL); /* Rewind FatFs cursor to beginning */
+        entry->d_ino = 1;
+        strncpy(entry->d_name, ".", sizeof(entry->d_name) - 1);
+        entry->d_name[sizeof(entry->d_name) - 1] = '\0';
+        entry->d_type = DT_DIR;
+        return 0;
+    }
+
+    if (index == 1) {
+        entry->d_ino = 1;
+        strncpy(entry->d_name, "..", sizeof(entry->d_name) - 1);
+        entry->d_name[sizeof(entry->d_name) - 1] = '\0';
+        entry->d_type = DT_DIR;
+        return 0;
+    }
     
     FILINFO *fno = kmalloc(sizeof(FILINFO));
     if (!fno) return -ENOMEM;
@@ -268,10 +289,13 @@ static int fatfs_vfs_getattr(FlxVfsNode_t *node, const char *path, struct stat *
     if (!node || !st) return -EINVAL;
     memset(st, 0, sizeof(struct stat));
 
-    /* If path is empty, we are stating the mount root itself! */
-    if (!path || path[0] == '\0') {
+    /* If path is empty or ".", we are stating the mount root itself! */
+    if (!path || path[0] == '\0' || strcmp(path, ".") == 0) {
         st->st_mode = S_IFDIR | 0755;
+        st->st_size = 4096;
         st->st_nlink = 2;
+        st->st_blksize = 1024;
+        st->st_blocks = 8;
         return 0;
     }
 
@@ -293,10 +317,12 @@ static int fatfs_vfs_getattr(FlxVfsNode_t *node, const char *path, struct stat *
     }
 
     st->st_mode = (fno->fattrib & AM_DIR) ? (S_IFDIR | 0755) : (S_IFREG | 0666);
-    st->st_size = fno->fsize;
-    st->st_nlink = 1;
+    st->st_size = (fno->fattrib & AM_DIR) ? 4096 : fno->fsize;
+    st->st_nlink = (fno->fattrib & AM_DIR) ? 2 : 1;
     st->st_uid = 0; 
     st->st_gid = 0; 
+    st->st_blksize = 1024;
+    st->st_blocks = (st->st_size + 511) / 512; 
 
     kfree(fno);
     kfree(fat_path);
@@ -489,6 +515,7 @@ static int fatfs_mount_hook(const char *source, unsigned long mountflags, const 
     /* Mount immediately using the translated logical drive */
     FRESULT res = f_mount(fs, logical_drive, 1);
     if (res != FR_OK) {
+        g_fatfs_blk_nodes[drive_num] = NULL;
         kfree(fs);
         return fat_to_errno(res);
     }

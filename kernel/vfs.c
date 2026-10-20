@@ -448,6 +448,10 @@ int flx_vfs_stat(FlxVfsNode_t *node, struct stat *st) {
     st->st_mode = node->mode;
     st->st_size = node->size;
 
+    if (S_ISDIR(node->mode)) {
+        st->st_size = 4096;
+    }
+
     /* Ensure we only cast node->data to FlxLinkedExec_t if it's a built-in static node!
      * (!node->ops guarantees it isn't an opaque driver context or RAMFS node) */
     if (S_ISREG(node->mode) && !node->ops && node->data) {

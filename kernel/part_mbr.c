@@ -20,7 +20,7 @@ typedef struct {
 } __attribute__((packed)) mbr_part_t;
 
 int part_parse_mbr(const char *raw_name, int major, const FlxVfsOps_t *ops, FlxPartition_t *part_array, int (*read_sector)(uint64_t lba, uint8_t *buf)) {
-    uint8_t sector_buf[SD_SECTOR_SIZE];
+    uint8_t sector_buf[SD_SECTOR_SIZE] __attribute__((aligned(8)));
 
     /* Read physical sector 0 using the provided hardware-agnostic callback */
     if (read_sector(0, sector_buf) != 0) {

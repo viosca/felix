@@ -151,8 +151,9 @@ static void handle_sdcard_insertion(bool auto_mount) {
 
     /* 3. Auto-Mount the discovered partitions */
     for (int i = 0; i < MAX_PARTITIONS; i++) {
-        /* If the parser found a valid partition type, mount it! */
-        if (blk_devices[FLX_BLK_DEV_SDCARD0].partitions[i].type != 0x00) {
+        uint8_t ptype = blk_devices[FLX_BLK_DEV_SDCARD0].partitions[i].type;
+        /* Mount valid filesystem partitions (skip empty slots and raw bootloader payload) */
+        if (ptype != FLX_PART_TYPE_EMPTY && ptype != FLX_PART_TYPE_HSS_BOOT) {
             char dev_path[32], mnt_path[32];
             snprintf(dev_path, sizeof(dev_path), "/dev/sd0p%d", i + 1);
             snprintf(mnt_path, sizeof(mnt_path), "/mnt/sd0p%d", i + 1);

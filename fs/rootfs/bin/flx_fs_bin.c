@@ -25,6 +25,10 @@ FLX_BINFMT_EXTERN_BOUNDS(flx_fs_bin_cmd_pwd);
 FLX_BINFMT_EXTERN_BOUNDS(flx_fs_bin_cmd_which);
 FLX_BINFMT_EXTERN_BOUNDS(flx_fs_bin_cmd_tree);
 FLX_BINFMT_EXTERN_BOUNDS(flx_fs_bin_cmd_cat);
+FLX_BINFMT_EXTERN_BOUNDS(flx_fs_bin_cmd_cp);
+FLX_BINFMT_EXTERN_BOUNDS(flx_fs_bin_cmd_rm);
+FLX_BINFMT_EXTERN_BOUNDS(flx_fs_bin_cmd_rmdir);
+FLX_BINFMT_EXTERN_BOUNDS(flx_fs_bin_cmd_touch);
 FLX_BINFMT_EXTERN_BOUNDS(flx_fs_bin_cmd_mount);
 FLX_BINFMT_EXTERN_BOUNDS(flx_fs_bin_cmd_umount);
 
@@ -40,6 +44,10 @@ FLX_BINFMT_DECLARE_CMD_PAYLOAD(payload_pwd,    flx_fs_bin_cmd_pwd,    flx_fs_bin
 FLX_BINFMT_DECLARE_CMD_PAYLOAD(payload_which,  flx_fs_bin_cmd_which,  flx_fs_bin_cmd_which);
 FLX_BINFMT_DECLARE_CMD_PAYLOAD(payload_tree,   flx_fs_bin_cmd_tree,   flx_fs_bin_cmd_tree);
 FLX_BINFMT_DECLARE_CMD_PAYLOAD(payload_cat,    flx_fs_bin_cmd_cat,    flx_fs_bin_cmd_cat);
+FLX_BINFMT_DECLARE_CMD_PAYLOAD(payload_cp,     flx_fs_bin_cmd_cp,     flx_fs_bin_cmd_cp);
+FLX_BINFMT_DECLARE_CMD_PAYLOAD(payload_rm,     flx_fs_bin_cmd_rm,     flx_fs_bin_cmd_rm);
+FLX_BINFMT_DECLARE_CMD_PAYLOAD(payload_rmdir,  flx_fs_bin_cmd_rmdir,  flx_fs_bin_cmd_rmdir);
+FLX_BINFMT_DECLARE_CMD_PAYLOAD(payload_touch,  flx_fs_bin_cmd_touch,  flx_fs_bin_cmd_touch);
 FLX_BINFMT_DECLARE_CMD_PAYLOAD(payload_mount,  flx_fs_bin_cmd_mount,  flx_fs_bin_cmd_mount);
 FLX_BINFMT_DECLARE_CMD_PAYLOAD(payload_umount, flx_fs_bin_cmd_umount, flx_fs_bin_cmd_umount);
 
@@ -59,12 +67,17 @@ FLX_VFS_DECLARE_NODE(node_pwd,      "pwd",     &node_bin, &payload_pwd);
 FLX_VFS_DECLARE_NODE(node_which,    "which",   &node_bin, &payload_which);
 FLX_VFS_DECLARE_NODE(node_tree,     "tree",    &node_bin, &payload_tree);
 FLX_VFS_DECLARE_NODE(node_cat,      "cat",     &node_bin, &payload_cat);
+FLX_VFS_DECLARE_NODE(node_cp,       "cp",      &node_bin, &payload_cp);
+FLX_VFS_DECLARE_NODE(node_rm,       "rm",      &node_bin, &payload_rm);
+FLX_VFS_DECLARE_NODE(node_rmdir,    "rmdir",   &node_bin, &payload_rmdir);
+FLX_VFS_DECLARE_NODE(node_touch,    "touch",   &node_bin, &payload_touch);
 FLX_VFS_DECLARE_NODE(node_mount,    "mount",   &node_bin, &payload_mount);
 FLX_VFS_DECLARE_NODE(node_umount,   "umount",  &node_bin, &payload_umount);
 
 /* 6. Link them into the static children array */
 static FlxVfsNode_t *bin_children[] = {
     &node_clear,
+    &node_cp,
     &node_date,
     &node_dir,
     &node_echo,
@@ -74,6 +87,9 @@ static FlxVfsNode_t *bin_children[] = {
     &node_ll,
     &node_mkdir,
     &node_pwd,
+    &node_rm,
+    &node_rmdir,
+    &node_touch,
     &node_which,
     &node_tree,
     &node_cat,

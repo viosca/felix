@@ -121,7 +121,7 @@ DRESULT disk_ioctl (
     void *buff      /* Buffer to send/receive control data */
 )
 {
-    if (pdrv != DEV_MMC) return RES_PARERR;
+    if (fatfs_get_blk_node(pdrv) == NULL) return RES_PARERR;
 
     int hal_cmd;
 
