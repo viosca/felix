@@ -452,12 +452,18 @@ int flx_vfs_stat(FlxVfsNode_t *node, struct stat *st) {
         st->st_size = 4096;
     }
 
+    /* Store in-memory node address for ls -i inspection */
+    st->st_spare4[0] = (long)(uintptr_t)node;
+
     /* Ensure we only cast node->data to FlxLinkedExec_t if it's a built-in static node!
      * (!node->ops guarantees it isn't an opaque driver context or RAMFS node) */
     if (S_ISREG(node->mode) && !node->ops && node->data) {
         FlxLinkedExec_t *payload = (FlxLinkedExec_t *)node->data;
         if (payload->start_ptr && payload->end_ptr) {
             st->st_size = (size_t)payload->end_ptr - (size_t)payload->start_ptr;
+            st->st_spare4[0] = (long)(uintptr_t)payload->start_ptr;
+        } else if (payload->main_func) {
+            st->st_spare4[0] = (long)(uintptr_t)payload->main_func;
         }
     }
 
@@ -515,21 +521,33 @@ int flx_vfs_fchmod(FlxVfsFile_t *file, mode_t mode) {
 int flx_vfs_truncate(FlxVfsNode_t *node, off_t length) {
     if (!node) return -EINVAL;
     if (S_ISDIR(node->mode)) return -EISDIR; /* Cannot truncate directories */
+    if (length < 0) return -EINVAL;
 
-    /* * In-memory RAM node fallback:
-     * To fully implement this, you would also add memory management here:
-     * if (length == 0) { free(node->data); node->data = NULL; }
-     * else if (length != node->size) { node->data = realloc(node->data, length); }
-     */
+    if (node->ops && node->ops->truncate) {
+        return node->ops->truncate(node, "", length);
+    }
 
     node->size = length;
     return 0;
 }
 
-int flx_vfs_truncate_path(FlxVfsNode_t *node, const char *path, off_t length) {
-    /* Route to ops->truncate, error out with -ENOTSUP if opaque, or fall through */
-    VFS_ROUTE_PATH(node, path, truncate, -ENOTSUP, length);
-    return flx_vfs_truncate(node, length);
+int flx_vfs_truncate_path(FlxVfsNode_t *base_dir, const char *path, off_t length) {
+    if (!path) return -EINVAL;
+    if (length < 0) return -EINVAL;
+
+    const char *remainder = NULL;
+    FlxVfsNode_t *target = flx_vfs_path_resolve(base_dir, path, &remainder);
+    if (!target) return -ENOENT;
+
+    /* Dynamic Filesystem Routing (e.g., FatFs) */
+    if (remainder && *remainder != '\0') {
+        if (target->ops && target->ops->truncate) {
+            return target->ops->truncate(target, remainder, length);
+        }
+        return -ENOTSUP;
+    }
+
+    return flx_vfs_truncate(target, length);
 }
 
 int flx_vfs_ftruncate(FlxVfsFile_t *file, off_t length) {

@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include "autoconf.h"
 
 /* Defines the maximum possible timeout for blocking OS calls */
 #define SCHED_WAIT_FOREVER 0xFFFFFFFF
@@ -100,10 +101,15 @@ static inline void sched_thread_exit(void) {
         active_scheduler->thread_exit();
 }
 
-static inline void sched_yield(void) {
+#if defined(CONFIG_FELIX_FREERTOS_PLUS_POSIX)
+int sched_yield(void);
+#else
+static inline int sched_yield(void) {
     if (active_scheduler && active_scheduler->yield)
         active_scheduler->yield();
+    return 0;
 }
+#endif
 
 static inline void sched_sleep_ms(uint32_t ms) {
     if (active_scheduler && active_scheduler->sleep_ms)

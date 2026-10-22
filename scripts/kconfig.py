@@ -80,6 +80,16 @@ def cmd_menuconfig():
     cmd_genheader()
 
 
+def cmd_guiconfig():
+    import guiconfig
+    # Set environment variables for guiconfig
+    os.environ["KCONFIG_CONFIG"] = DOT_CONFIG
+    sys.argv = [sys.argv[0], KCONFIG_FILE]
+    guiconfig._main()
+    # After guiconfig closes, update autoconf.h
+    cmd_genheader()
+
+
 def print_help():
     print("""Felix OS Kconfig Helper
 
@@ -89,7 +99,8 @@ Usage:
 Commands:
     defconfig <name>    Load a predefined configuration (e.g. disco_ddr_defconfig)
     genheader           Regenerate include/generated/autoconf.h from current .config
-    menuconfig          Interactive terminal configuration menu
+    menuconfig          Interactive terminal configuration menu (ncurses)
+    guiconfig           Graphical configuration editor (Tk GUI)
     help                Show this help message
 """)
 
@@ -109,6 +120,8 @@ def main():
         cmd_genheader()
     elif cmd == "menuconfig":
         cmd_menuconfig()
+    elif cmd in ("guiconfig", "gui"):
+        cmd_guiconfig()
     elif cmd in ("--help", "-h", "help"):
         print_help()
     else:

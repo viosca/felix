@@ -48,6 +48,15 @@ ssize_t write(int fd, const void *buf, size_t count) {
     return ret;
 }
 
+off_t lseek(int fd, off_t offset, int whence) {
+    off_t ret = sys_lseek(fd, offset, whence);
+    if (ret < 0) {
+        errno = (int)-ret;
+        return (off_t)-1;
+    }
+    return ret;
+}
+
 int isatty(int fd) {
     int ret = sys_isatty(fd);
     if (ret == 0) {

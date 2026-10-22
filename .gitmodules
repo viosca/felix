@@ -10,3 +10,6 @@
 [submodule "external/toybox"]
 	path = external/toybox
 	url = https://github.com/viosca/toybox.git
+[submodule "external/FreeRTOS-Plus-POSIX"]
+	path = external/FreeRTOS-Plus-POSIX
+	url = https://github.com/FreeRTOS/Lab-Project-FreeRTOS-POSIX.git

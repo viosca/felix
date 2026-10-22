@@ -90,11 +90,16 @@ void flx_serial_isr_rx_byte(int dev_id, uint8_t byte) {
 int flx_serial_isr_tx_pop(int dev_id, uint8_t *byte) {
     FlxDev_t *dev = flx_dev_get(dev_id);
     if (!dev || ring_buffer_is_empty(&dev->tx_buffer)) {
-        g_tx_active[dev_id] = false;
         return 0; /* No data to pop */
     }
     ring_buffer_read(&dev->tx_buffer, byte);
     return 1; /* Success */
+}
+
+void flx_serial_isr_tx_done(int dev_id) {
+    if (dev_id >= 0 && dev_id < FLX_DEV_MAX_DEVICES) {
+        g_tx_active[dev_id] = false;
+    }
 }
 
 /* =========================================================================

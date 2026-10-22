@@ -4,6 +4,7 @@
  */
 #include "FreeRTOS.h"
 #include "task.h"
+#include "kernel/klog.h"
 #include <stdio.h>
 #include <stdint.h>
 
@@ -15,16 +16,14 @@ extern void freertos_risc_v_trap_handler(void);
  * ========================================================================= */
 
 void vApplicationMallocFailedHook(void) {
-    printf("\r\n[FreeRTOS PANIC] Out of Heap Memory!\r\n");
-    fflush(stdout);
+    kprintf("\r\n[FreeRTOS PANIC] Out of Heap Memory!\r\n");
     __asm__ volatile("ebreak");
     while(1);
 }
 
 void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName) {
     (void)xTask;
-    printf("\r\n[FreeRTOS PANIC] Stack Overflow detected in task: %s\r\n", pcTaskName);
-    fflush(stdout);
+    kprintf("\r\n[FreeRTOS PANIC] Stack Overflow detected in task: %s\r\n", pcTaskName ? pcTaskName : "unknown");
     __asm__ volatile("ebreak");
     while(1);
 }

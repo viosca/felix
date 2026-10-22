@@ -160,20 +160,14 @@ int sys_write(int fd, const void *buf, size_t count) {
 
     FlxVfsNode_t *node = file->node;
     if (S_ISDIR(node->mode)) return -EISDIR;
-#if 0
-    if (S_ISCHR(node->mode)) {
-        dev_t rdev = (dev_t)((uintptr_t)node->data);
-        FlxDev_t *dev = flx_dev_get(rdev & 0xFF);
-        if (!dev) return -ENODEV;
 
-        ssize_t ret = serial_write(dev, (const char *)buf, count);
-        return (ret < 0) ? -EIO : ret;
-    }
-
-    if (S_ISREG(node->mode)) {
-#else
     if (S_ISCHR(node->mode) || S_ISREG(node->mode)) {
-#endif
+        if ((file->flags & O_APPEND) && S_ISREG(node->mode)) {
+            struct stat st;
+            if (flx_vfs_stat(node, &st) == 0) {
+                flx_proc_fd_offset_set(fd, st.st_size);
+            }
+        }
         off_t current_offset = flx_proc_fd_offset_get(fd);
         ssize_t bytes_written = flx_vfs_write(node, buf, count, current_offset);
 

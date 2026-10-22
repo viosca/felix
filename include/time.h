@@ -5,8 +5,9 @@
 #ifndef _FELIX_TIME_H
 #define _FELIX_TIME_H
 
-/* Pull in the REAL Newlib time.h */
+/* Pull in the REAL Newlib time.h and signal.h (for struct sigevent) */
 #include_next <time.h>
+#include <signal.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -56,6 +57,18 @@ int nanosleep(const struct timespec *req, struct timespec *rem);
 #ifndef CLOCK_MONOTONIC
 #define CLOCK_MONOTONIC 1
 #endif
+#ifndef TIMER_ABSTIME
+#define TIMER_ABSTIME 0x01
+#endif
+
+struct sigevent;
+int clock_getres(clockid_t clock_id, struct timespec *res);
+int clock_nanosleep(clockid_t clock_id, int flags, const struct timespec *rqtp, struct timespec *rmtp);
+int timer_create(clockid_t clockid, struct sigevent *evp, timer_t *timerid);
+int timer_delete(timer_t timerid);
+int timer_getoverrun(timer_t timerid);
+int timer_gettime(timer_t timerid, struct itimerspec *value);
+int timer_settime(timer_t timerid, int flags, const struct itimerspec *value, struct itimerspec *ovalue);
 
 #ifdef __cplusplus
 }

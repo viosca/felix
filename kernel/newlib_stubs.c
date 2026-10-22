@@ -81,8 +81,12 @@ int _isatty_r(struct _reent *r, int fd) {
 }
 
 off_t _lseek_r(struct _reent *r, int fd, off_t ptr, int dir) {
-    (void)r;
-    return lseek(fd, ptr, dir);
+    off_t ret = sys_lseek(fd, ptr, dir);
+    if (ret < 0) {
+        if (r) r->_errno = (int)-ret;
+        return (off_t)-1;
+    }
+    return ret;
 }
 
 int _ioctl_r(struct _reent *r, int file, int request, void *argp) {

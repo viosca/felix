@@ -175,7 +175,39 @@ config FELIX_FREERTOS_PLUS_POSIX
     default y
     help
       Integrates official FreeRTOS-Plus-POSIX for pthreads, mutexes,
-      and semaphores.
+      condition variables, barriers, semaphores, message queues, and timers.
+
+if FELIX_FREERTOS_PLUS_POSIX
+
+config FELIX_POSIX_PTHREAD
+    bool "POSIX Threads, Mutexes, Condvars & Barriers (pthread.h)"
+    default y
+    help
+      Enables pthread_create, pthread_join, pthread_detach, pthread_mutex_*,
+      pthread_cond_*, and pthread_barrier_*.
+
+config FELIX_POSIX_SEMAPHORE
+    bool "POSIX Counting Semaphores (semaphore.h)"
+    default y
+    help
+      Enables sem_init, sem_destroy, sem_wait, sem_trywait, sem_timedwait,
+      sem_post, and sem_getvalue.
+
+config FELIX_POSIX_MQUEUE
+    bool "POSIX Message Queues (mqueue.h)"
+    default y
+    help
+      Enables mq_open, mq_close, mq_unlink, mq_send, mq_timedsend,
+      mq_receive, mq_timedreceive, and mq_getattr.
+
+config FELIX_POSIX_TIMER
+    bool "POSIX Interval Timers (timer_create / timer_settime)"
+    default y
+    help
+      Enables timer_create, timer_delete, timer_settime, timer_gettime,
+      and timer_getoverrun.
+
+endif # FELIX_FREERTOS_PLUS_POSIX
 
 endmenu
 
@@ -225,5 +257,100 @@ config FELIX_TOYBOX
     help
       Enables Toybox command-line utilities. In DDR mode, Toybox runs
       externally via the ELF loader from /bin/toybox on the SD card.
+
+endmenu
+
+# =============================================================================
+# Verification & Test Suite
+# =============================================================================
+menu "Verification & Test Suite"
+
+config FELIX_TEST_SUITE
+    bool "Enable In-Tree Test Suite (/test)"
+    default y
+    help
+      Enables the /test pseudo-filesystem containing automated hardware and
+      software verification test suites.
+
+if FELIX_TEST_SUITE
+
+config FELIX_TEST_ALL
+    bool "Master Aggregate Test Runner (/test/all)"
+    default y
+    help
+      Provides /test/all to run all enabled test suites sequentially.
+
+config FELIX_TEST_MEM
+    bool "Memory & Heap Allocator Suite (/test/mem_test)"
+    default y
+    help
+      Verifies malloc alignment, calloc zero-initialization, realloc expansion,
+      strdup, and multi-block interleaved allocation stress.
+
+config FELIX_TEST_DEV
+    bool "Device & Syscall Suite (/test/dev_test)"
+    depends on FELIX_VFS
+    default y
+    help
+      Verifies character device nodes (/dev/console), uname(), environment
+      variable manipulation, and monotonic clock progression.
+
+config FELIX_TEST_VFS
+    bool "VFS & Filesystem Suite (/test/vfs_test)"
+    depends on FELIX_VFS
+    default y
+    help
+      Verifies VFS file creation, write, stat, fstat, lseek, directory creation,
+      opendir, readdir, and *at syscall cleanup.
+
+config FELIX_TEST_POSIX
+    bool "FreeRTOS+POSIX Verification Suite (/test/posix_test)"
+    depends on FELIX_FREERTOS_PLUS_POSIX
+    default y
+    help
+      Verifies pthread creation, 64-bit return values, mutex contention,
+      condition variables, barriers, semaphores, message queues, and timers.
+
+config FELIX_TEST_WORDEXP
+    bool "POSIX Word Expansion & Execution Suite (/test/wordexp_test)"
+    depends on FELIX_POSIX
+    default y
+    help
+      Verifies word splitting, single/double quoting, backslash escapes,
+      environment variable expansion ($VAR), and execvp path resolution.
+
+config FELIX_TEST_IO
+    bool "POSIX File I/O & Stream Suite (/test/io_test)"
+    depends on FELIX_VFS
+    default y
+    help
+      Verifies O_APPEND atomic EOF guarantees, ftruncate expansion & shrinking,
+      path-based truncate(), and getline() dynamic stream parsing.
+
+config FELIX_TEST_PATH
+    bool "VFS Path Traversal & Topology Suite (/test/path_test)"
+    depends on FELIX_VFS
+    default y
+    help
+      Verifies 5-level deep directory creation, relative '.' and '..'
+      canonicalization, chdir/getcwd tracking, and error protections.
+
+config FELIX_TEST_STORAGE
+    bool "Block Storage & FatFs Subsystem Suite (/test/storage_test)"
+    depends on FELIX_BLK_MANAGER
+    default y
+    help
+      Verifies SD card hardware detection, raw block device nodes, GPT partition
+      discovery (/dev/sd0p1), and FatFs filesystem read/write verification.
+
+config FELIX_TEST_STRESS
+    bool "Multitasking Concurrency & Stress Suite (/test/stress_test)"
+    depends on FELIX_FREERTOS_PLUS_POSIX
+    default y
+    help
+      Performs rapid pthread creation & join churn, concurrent 4-thread mutex
+      contention, message queue FIFO throughput, and monotonic timer jitter analysis.
+
+endif # FELIX_TEST_SUITE
 
 endmenu

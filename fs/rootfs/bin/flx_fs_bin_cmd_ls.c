@@ -50,6 +50,7 @@ int flx_fs_bin_cmd_ls(int argc, char **argv) {
 
     bool long_format = false;
     bool show_all = false;
+    bool show_addr = false;
 
     char *prog_name = strrchr(argv[0], '/');
     prog_name = prog_name ? prog_name + 1 : argv[0]; /* Get the basename */
@@ -60,10 +61,11 @@ int flx_fs_bin_cmd_ls(int argc, char **argv) {
     }
 
     int option;
-    while ((option = optparse(&options, "la")) != -1) {
+    while ((option = optparse(&options, "lai")) != -1) {
         switch (option) {
             case 'l': long_format = true; break;
             case 'a': show_all = true; break;
+            case 'i': show_addr = true; break;
             case '?':
                 FLX_SH_ERR("%s: invalid option -- '%c'\n", argv[0], options.optopt);
                 return 1;
@@ -77,7 +79,16 @@ int flx_fs_bin_cmd_ls(int argc, char **argv) {
     if (!dir) {
         struct stat st;
         if (stat(target, &st) == 0 && !S_ISDIR(st.st_mode)) {
-            printf("%s\n", target);
+            if (show_addr) {
+                printf("0x%08lx ", (unsigned long)(uintptr_t)st.st_spare4[0]);
+            }
+            if (long_format) {
+                char perms[4] = "----";
+                print_permissions(st.st_mode, perms, sizeof(perms) - 1);
+                printf("-%s 1 kitty %8u 00:00 %s\n", perms, (unsigned int)st.st_size, target);
+            } else {
+                printf("%s\n", target);
+            }
             return 0;
         }
         FLX_SH_ERR("ls: cannot access '%s': No such file or directory\n", target);
@@ -131,6 +142,10 @@ int flx_fs_bin_cmd_ls(int argc, char **argv) {
 
                 print_permissions(st.st_mode, perms, sizeof(perms)-1);
 
+                if (show_addr) {
+                    printf("0x%08lx ", (unsigned long)(uintptr_t)st.st_spare4[0]);
+                }
+
                 /* If it's a device, print Major, Minor instead of Size! */
                 if (S_ISCHR(st.st_mode) || S_ISBLK(st.st_mode)) {
                     int major = (st.st_rdev >> 8) & 0xFF;
@@ -143,11 +158,24 @@ int flx_fs_bin_cmd_ls(int argc, char **argv) {
                 }
             } else {
                 /* Stat failed, just print the name */
+                if (show_addr) {
+                    printf("0x00000000 ");
+                }
                 printf("?%s 1 %s        0 00:00 %s\n", perms, user, names[i]);
             }
         } else {
             /* Standard short format */
-            printf("%s  ", names[i]);
+            if (show_addr) {
+                struct stat st;
+                char full_path[512];
+                snprintf(full_path, sizeof(full_path), "%s/%s", target, names[i]);
+                unsigned long addr = (stat(full_path, &st) == 0)
+                                     ? (unsigned long)(uintptr_t)st.st_spare4[0]
+                                     : 0UL;
+                printf("0x%08lx %s  ", addr, names[i]);
+            } else {
+                printf("%s  ", names[i]);
+            }
         }
 
         /* 5. Free the duplicated string now that we are done with it */

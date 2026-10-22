@@ -29,6 +29,7 @@ int flx_serial_ioctl(FlxDev_t *dev, int request, void *arg);
 /* --- Callbacks for the Vendor ISRs to use --- */
 void flx_serial_isr_rx_byte(int dev_id, uint8_t byte);
 int  flx_serial_isr_tx_pop(int dev_id, uint8_t *byte);
+void flx_serial_isr_tx_done(int dev_id);
 
 /* --- The Global VFS Operations Table for all Serial Ports --- */
 extern const FlxVfsOps_t g_flx_serial_vfs_ops;

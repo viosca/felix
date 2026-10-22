@@ -105,15 +105,21 @@ static int ramfs_truncate(FlxVfsNode_t *node, const char *path, off_t length) {
     return 0;
 }
 
+static int ramfs_ftruncate(FlxVfsFile_t *file, off_t length) {
+    if (!file || !file->node) return -EBADF;
+    return ramfs_truncate(file->node, "", length);
+}
+
 FlxVfsOps_t g_ramfs_ops = {
-    .mkdir    = ramfs_mkdir,
-    .rmdir    = ramfs_unlink,  /* Directories and files map to the same unlink logic */
-    .mknod    = ramfs_mknod,
-    .create   = ramfs_create,
-    .unlink   = ramfs_unlink,
-    .read     = ramfs_read,
-    .write    = ramfs_write,
-    .truncate = ramfs_truncate
+    .mkdir     = ramfs_mkdir,
+    .rmdir     = ramfs_unlink,  /* Directories and files map to the same unlink logic */
+    .mknod     = ramfs_mknod,
+    .create    = ramfs_create,
+    .unlink    = ramfs_unlink,
+    .read      = ramfs_read,
+    .write     = ramfs_write,
+    .truncate  = ramfs_truncate,
+    .ftruncate = ramfs_ftruncate
 };
 
 /* =========================================================================

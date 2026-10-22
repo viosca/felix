@@ -9,6 +9,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <stdbool.h>
+#include "optparse.h"
 #include "kernel/binfmt.h"
 #include "fs/rootfs/bin/flx_fs_bin_cmd_utils.h"
 
@@ -88,29 +89,33 @@ int flx_fs_bin_cmd_rm(int argc, char **argv) {
 
     bool recursive = false;
     bool force = false;
-    int opt_idx = 1;
 
-    while (opt_idx < argc && argv[opt_idx][0] == '-' && argv[opt_idx][1] != '\0') {
-        const char *p = &argv[opt_idx][1];
-        while (*p) {
-            if (*p == 'r' || *p == 'R') recursive = true;
-            else if (*p == 'f') force = true;
-            else {
-                printf("rm: invalid option -- '%c'\n", *p);
+    struct optparse options;
+    optparse_init(&options, argv);
+
+    int opt;
+    while ((opt = optparse(&options, "rRf")) != -1) {
+        switch (opt) {
+            case 'r':
+            case 'R':
+                recursive = true;
+                break;
+            case 'f':
+                force = true;
+                break;
+            case '?':
+                printf("rm: invalid option -- '%c'\n", options.optopt);
                 return 1;
-            }
-            p++;
         }
-        opt_idx++;
     }
 
-    if (opt_idx >= argc) {
+    if (options.optind >= argc) {
         if (!force) printf("rm: missing operand\n");
         return force ? 0 : 1;
     }
 
     int exit_code = 0;
-    for (int i = opt_idx; i < argc; i++) {
+    for (int i = options.optind; i < argc; i++) {
         struct stat st;
         if (stat(argv[i], &st) < 0) {
             if (!force) {

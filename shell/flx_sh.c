@@ -8,27 +8,11 @@
 #include <wordexp.h>
 #include <limits.h>
 
-#define __need_getopt_newlib
-#include <getopt.h>
-
 #include "linenoise.h"
 #include "shell/flx_sh.h"
 #include "shell/flx_sh_history.h"
 #include "shell/flx_sh_builtins.h"
 #include "shell/flx_sh_completion.h"
-
-#if 0
-    int __getopt_r (int __argc, char *const __argv[], const char *__optstring,
-             struct getopt_data * __data);
-
-    int __getopt_long_r (int __argc, char *const __argv[], const char *__shortopts,
-             const struct option * __longopts, int *__longind,
-             struct getopt_data * __data);
-
-    int __getopt_long_only_r (int __argc, char *const __argv[], const char *__shortopts,
-             const struct option * __longopts, int *__longind,
-             struct getopt_data * __data);
-#endif
 
 #define CONFIG_USE_TOYBOX
 /* Forward declaration for optional ToyBox */
@@ -146,9 +130,6 @@ int flx_sh_main(int argc, char **argv) {
     ctx->running = true;
 
     printf("\nWelcome to Felix OS!\n");
-
-    /* Initialize the getopt context for the shell (avoid passing NULL for string arg) */
-    //getopt_long_r(argc, argv, "", NULL, NULL, &ctx->go_data);
 
 #ifdef CONFIG_USE_TOYBOX
     char *tb_argv[] = {"sh", NULL};
