@@ -523,6 +523,9 @@ int flx_vfs_truncate(FlxVfsNode_t *node, off_t length) {
     if (S_ISDIR(node->mode)) return -EISDIR; /* Cannot truncate directories */
     if (length < 0) return -EINVAL;
 
+    /* Character and block special devices ignore truncation */
+    if (S_ISCHR(node->mode) || S_ISBLK(node->mode)) return 0;
+
     if (node->ops && node->ops->truncate) {
         return node->ops->truncate(node, "", length);
     }

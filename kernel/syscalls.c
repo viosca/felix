@@ -11,6 +11,7 @@
 #include <string.h>
 #include <stddef.h>
 #include <sys/stat.h>
+#include <sys/sysmacros.h>
 #include <fcntl.h>
 #include <stdint.h>
 #include <errno.h>
@@ -186,7 +187,14 @@ off_t sys_lseek(int fd, off_t offset, int whence) {
     FlxVfsFile_t *file = flx_proc_fd_get(fd);
     if (!file || !file->in_use || !file->node) return (off_t)-EBADF;
 
-    if (S_ISCHR(file->node->mode)) return (off_t)-ESPIPE; 
+    if (S_ISCHR(file->node->mode)) {
+        /* Memory devices (/dev/null, /dev/zero: major 1) succeed with offset 0 */
+        if (major(file->node->dev_id) == 1) {
+            file->offset = 0;
+            return 0;
+        }
+        return (off_t)-ESPIPE;
+    }
 
     off_t size = 0;
     struct stat st;
@@ -210,22 +218,13 @@ int sys_ioctl(int fd, int request, void *arg) {
     FlxVfsFile_t *file = flx_proc_fd_get(fd);
     if (!file || !file->in_use || !file->node) return -EBADF;
 
-    if (S_ISCHR(file->node->mode) || S_ISBLK(file->node->mode)) {
-        int minor = file->node->dev_id & 0xFF;
-        FlxDev_t *dev = flx_dev_get(minor);
+    if (S_ISCHR(file->node->mode) && major(file->node->dev_id) == 4) {
+        int min_id = (int)minor(file->node->dev_id);
+        FlxDev_t *dev = flx_dev_get(min_id);
         if (!dev)
             return -ENODEV;
 
-        int ret = flx_serial_ioctl(dev, request, arg);
-        return ret; /* Let the specific error (-EINVAL, etc.) bubble up */
-#if 0
-        dev_t rdev = (dev_t)((uintptr_t)file->node->data);
-        FlxDev_t *dev = flx_dev_get(rdev & 0xFF);
-        if (!dev) return -ENODEV;
-
-        int ret = flx_serial_ioctl(dev, request, arg);
-        return ret; /* Let the specific error (-EINVAL, etc.) bubble up! */
-#endif
+        return flx_serial_ioctl(dev, request, arg);
     }
 
     return -ENOTTY;
@@ -235,7 +234,7 @@ int sys_isatty(int fd) {
     FlxVfsFile_t *file = flx_proc_fd_get(fd);
     if (!file || !file->in_use || !file->node) return 0;
 
-    return S_ISCHR(file->node->mode) ? 1 : 0;
+    return (S_ISCHR(file->node->mode) && major(file->node->dev_id) == 4) ? 1 : 0;
 }
 
 /* =========================================================================

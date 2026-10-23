@@ -37,11 +37,11 @@ int flx_fs_test_cmd_storage(int argc, char **argv) {
 
     /* 2. Block device node enumeration in /dev */
     struct stat st;
-    int dev_stat = stat("/dev/sdcard0", &st);
+    int dev_stat = stat("/dev/sd0", &st);
     if (dev_stat == 0) {
-        FLX_TEST_CHECK(&t, S_ISBLK(st.st_mode), "/dev/sdcard0 raw block device registered");
+        FLX_TEST_CHECK(&t, S_ISBLK(st.st_mode), "/dev/sd0 raw block device registered");
     } else {
-        FLX_TEST_CHECK(&t, true, "/dev/sdcard0 raw block device (not active, skipped)");
+        FLX_TEST_CHECK(&t, true, "/dev/sd0 raw block device (not active, skipped)");
     }
 
     /* 3. Partition discovery check */
@@ -52,10 +52,17 @@ int flx_fs_test_cmd_storage(int argc, char **argv) {
         FLX_TEST_CHECK(&t, true, "/dev/sd0p1 partition node (unpartitioned or absent, skipped)");
     }
 
-    /* 4. FatFs partition mount point & file I/O */
-    int mnt_stat = stat("/mnt/sd0p1", &st);
-    if (mnt_stat == 0 && S_ISDIR(st.st_mode)) {
-        const char *fat_test_file = "/mnt/sd0p1/flx_storage_test.tmp";
+    /* 4. FatFs partition mount point & file I/O (prefer /mnt/sd0p2, fallback /mnt/sd0p1) */
+    const char *mnt_dir = NULL;
+    if (stat("/mnt/sd0p2", &st) == 0 && S_ISDIR(st.st_mode)) {
+        mnt_dir = "/mnt/sd0p2";
+    } else if (stat("/mnt/sd0p1", &st) == 0 && S_ISDIR(st.st_mode)) {
+        mnt_dir = "/mnt/sd0p1";
+    }
+
+    if (mnt_dir != NULL) {
+        char fat_test_file[64];
+        snprintf(fat_test_file, sizeof(fat_test_file), "%s/flx_storage_test.tmp", mnt_dir);
         const char *fat_payload = "Felix Storage Verification Payload 2026";
         size_t plen = strlen(fat_payload);
 
@@ -66,7 +73,7 @@ int flx_fs_test_cmd_storage(int argc, char **argv) {
             close(fd);
         }
         FLX_TEST_INT(&t, nw, "==", (long)plen,
-                     "FatFs file write to /mnt/sd0p1 (%ld/%ld bytes)", nw, (long)plen);
+                     "FatFs file write to %s (%ld/%ld bytes)", mnt_dir, nw, (long)plen);
 
         char rdbuf[64] = {0};
         ssize_t nr = -1;
@@ -79,7 +86,7 @@ int flx_fs_test_cmd_storage(int argc, char **argv) {
         FLX_TEST_CHECK(&t, nr == (ssize_t)plen && strcmp(rdbuf, fat_payload) == 0,
                        "FatFs round-trip read & verify ('%s')", rdbuf);
     } else {
-        FLX_TEST_CHECK(&t, true, "FatFs /mnt/sd0p1 volume (no mounted filesystem, skipped)");
+        FLX_TEST_CHECK(&t, true, "FatFs /mnt/sd0p* volume (no mounted filesystem, skipped)");
     }
 
     return flx_test_end(&t);
