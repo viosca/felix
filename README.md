@@ -1,31 +1,64 @@
-# Felix OS
+<div align="center">
+  <img src="docs/assets/felix_mascot.png" alt="Felix OS Mascot" width="220" />
+  <h1>Felix OS</h1>
+  <p><strong>A lightweight, modular, POSIX-compliant operating environment for embedded systems</strong></p>
+</div>
 
-Felix OS is a lightweight, bare-metal, POSIX-compliant operating system built from scratch for the RISC-V 64-bit architecture.
+**Felix OS** is a lightweight, modular, POSIX-compliant operating environment built for embedded systems. It bridges the gap between a compact real-time OS (or bare-metal scheduler) and a familiar Unix-like system—providing filesystems, standard C/POSIX interfaces, and an interactive command-line shell within a very small memory footprint and without requiring a hardware MMU.
 
-## The Goal
+---
 
-The primary goal of Felix OS is to provide a fully functional, cooperative multitasking environment with a robust Virtual File System (VFS) and standard POSIX interface, while maintaining an incredibly lean memory footprint (currently running in under 150 KB of ROM and 100 KB of RAM). It aims to bridge the gap between a simple RTOS and a full-scale Unix-like system.
+## Philosophy: Hardware & OS Agnostic
 
-## Progress & Features
+Felix is designed around strict separation of concerns so the core OS never gets locked to a single chip or RTOS vendor:
 
-Felix OS is actively in development. The current milestones achieved include:
+* **Hardware Agnostic:** This repository contains pure, portable OS middleware with zero board-specific pinouts, clock setups, or vendor SDKs. Today, Felix runs on the **Microchip PolarFire SoC Discovery Kit** (64-bit RISC-V) via its companion Board Support Package ([`felix-bsp-mpfs`](https://github.com/viosca/felix-bsp-mpfs)), and is architected to port cleanly to 32-bit and 64-bit ARM and other architectures.
+* **Low-Level OS Agnostic:** Core Felix subsystems talk to a thin internal Scheduler Abstraction Layer rather than calling a specific RTOS directly. FreeRTOS serves as the current scheduling backend (with optional `FreeRTOS-Plus-POSIX` threading and IPC for applications), while keeping the door open for Zephyr, ThreadX, or bare-metal backends.
 
-* **RISC-V 64-bit Core:** Custom hardware initialization, lightweight memory management (bump allocator via `sbrk`), and standard timer/clock integration.
+---
 
-* **POSIX Compliance:** Deep integration with Newlib (Libgloss backend) featuring a thread-safe reentrancy architecture (`struct _reent`), standard file descriptor routing, and isolated environment variables.
+## Core Capabilities
 
-* **Virtual File System (VFS):** A modular filesystem hierarchy currently supporting static memory-mapped filesystems (`/bin`, `/dev`, `/etc`) with full support for standard I/O and directory streaming (`opendir`, `readdir`).
+* **Virtual File System (VFS):** Unified directory tree (`/`, `/dev`, `/tmp` in-memory RAMFS, `/bin`, `/etc`, and `/mnt` removable storage).
+* **Storage & Hotplugging:** Automatic SD/MMC card detection, MBR and GPT partition discovery, and FAT/exFAT filesystem mounting.
+* **POSIX & C Runtime:** Thread-safe Newlib integration, per-process file descriptors, working directories, environment variables, and optional POSIX threads, mutexes, semaphores, message queues, and timers.
+* **Interactive Shell & Tools:** Command-line shell (`flx_sh`) with line editing, history, tab completion, built-in file utilities, and Toybox support.
+* **Kconfig & Built-in Verification:** Menu-driven feature configuration (`scripts/kconfig.py`) and an on-target automated test suite (`/test/all`) that scales cleanly from kilobyte-scale SRAM profiles up to full DDR builds.
 
-* **Interactive Shell:** A rich, interactive command-line interface powered by `linenoise`, featuring dynamic history, tab-autocompletion, and `$PATH` resolution.
+---
 
-* **Executable Binaries:** Isolated user-space tools loaded as discrete linker sections (including `ls`, `hexdump`, `date`, `echo`, `which`, and `clear`).
+## How Felix Is Used
 
-* **Kernel Gatekeeping:** A strict system call boundary (`sys_*`) safely decoupling user-space POSIX functions from core kernel operations.
+Because `felix` is hardware-independent, it is not compiled as a standalone board project on its own. Instead, a **Board Support Package (BSP)** wrapper repository imports `felix` alongside the target silicon vendor's HAL, supplies the board startup and linker scripts, and builds the final firmware image.
 
-## Up Next
+To inspect or customize Felix OS features from a workspace:
 
-* Developing a `TmpFS` (RAM Disk) to mount at `/tmp` for dynamic file creation and writing.
+```bash
+# Launch the graphical configuration editor (Tk)
+python felix/scripts/kconfig.py guiconfig
 
-* Transitioning the integrated shell into a standalone user-space executable (`/bin/sh`).
+# Or launch the terminal menu editor
+python felix/scripts/kconfig.py menuconfig
+```
 
-* Implementing true cooperative multitasking and hardware context switching.
+---
+
+## Documentation (Start Here for Contributors & AI Assistants)
+
+Detailed architectural rules and subsystem designs live in [`docs/`](docs/):
+
+* **[Felix Golden Rules & Architectural Goals](docs/GOLDEN_RULES.md)** — **Read this first.** Defines what Felix is, strict hardware/OS quarantine boundaries, and coding guardrails for both human developers and AI coding assistants.
+* **[Dynamic Loading, Shared Libraries & Configurability Design](docs/dynamic_loading_and_configurability_design.md)** — Kconfig build profiles, position-independent ELF loading, and shared library architecture.
+* **[FreeRTOS+POSIX Integration Plan](docs/freertos_posix_integration_plan.md)** — How optional POSIX threading and IPC coexist with Felix's native VFS and syscall layer.
+
+---
+
+## Mascot & Icons
+
+Meet **Felix** — the official mascot of Felix OS! Felix is an olive-green solder-mask tabby cat with subtle golden-copper PCB traces and IC via pads woven into his fur. Full-resolution artwork, transparent cutouts, and multi-resolution application icons (`.ico` and `.png` down to 16x16) are located in [`docs/assets/`](docs/assets/).
+
+---
+
+## License
+
+See [LICENSE.md](LICENSE.md) for licensing details.
