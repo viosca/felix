@@ -1,6 +1,6 @@
 [submodule "external/optparse"]
 	path = external/optparse
-	url = https://github.com/skeeto/optparse.git
+	url = https://github.com/viosca/optparse.git
 [submodule "external/linenoise"]
 	path = external/linenoise
 	url = https://github.com/viosca/linenoise-felix.git
@@ -12,4 +12,4 @@
 	url = https://github.com/viosca/toybox.git
 [submodule "external/FreeRTOS-Plus-POSIX"]
 	path = external/FreeRTOS-Plus-POSIX
-	url = https://github.com/FreeRTOS/Lab-Project-FreeRTOS-POSIX.git
+	url = https://github.com/viosca/FreeRTOS-Plus-POSIX.git
